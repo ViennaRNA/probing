@@ -1,0 +1,152 @@
+# Name of your program
+package "RNAbpfold" # don't use package if you're using automake
+purpose "RNA folding with continuous constraints"
+usage "RNAbpfold [options] < sequence.fa\n"
+
+# Version of your program
+version "0.01"   # don't use version if you're using automake
+
+
+# command line options passed to gengetopt
+args "--file-name=RNApbfold_cmdl --include-getopt --default-optional --func-name=RNAfold_cmdline_parser --arg-struct-name=RNAfold_args_info"
+
+description "RNAbpfold is a variant of RNAfold that iteratively adapts the folding energy\
+parameters to improve predictions using information from probing experiments that produce data on how likely a base is in paired or\
+unpaired state.\n\n\
+The sequence is read from a FASTA formatted file and the constraints are given as vector of the probability of being in a\
+unpaired state in a file constraints.dat (one float value per line).\n\n\
+For testing a reference structure can be given as a second line in the FASTA file. The probability vectors are then calculated from\
+the dot bracket notations of this reference structure.\n\n\
+The program prints information on the iterative algorithm to STDERR and machine readable results (pair probabilities etc) to STDOUT.
+"
+
+text "\n\n\033[1mRNApbfold specific options\n \033[2m\033[0m"
+
+option  "tau" -
+"Variance of energy parameters.\n" 
+double 
+default="1.0"
+argoptional
+optional
+
+option  "sigma" - 
+"Variance of experimental constraints.\n" 
+double
+default="1.0"
+argoptional
+optional
+
+option  "step" -
+"Initial step-size for deepest descent algorithm.\n" 
+double 
+default="0.01"
+argoptional
+optional
+
+option  "precision" - 
+"Stop if objective function ratio between two iterations is smaller than precision"
+double
+default="0.001"
+argoptional
+optional
+
+option  "maxN" - 
+"Maximum number of iterations"
+int
+default="200"
+argoptional
+optional
+
+
+option  "constraint"  C
+"Use reference structure given in input file as dot-bracket string to calculate constraints (for testing).\n"
+flag
+off
+
+
+option  "noPS" - 
+"Do not produce postscript dotplots. By default for each iteration the current\
+pair probability matrix and perturbation vector is written to a Postscript\
+formatted file iteration1.ps, iteration2.ps, ..., iteration3.ps\n" 
+flag
+off
+
+text "\n\n\033[1mGeneral RNAfold options\n \033[2m\033[0m"
+
+# Options
+option  "temp"  T
+"Rescale energy parameters to a temperature of temp C. Default is 37C.\n"
+double
+
+option  "noTetra" 4
+"Do not include special stabilizing energies for certain tetra-loops. Mostly for testing.\n"
+flag
+off
+
+option  "dangles" d
+"How to treat \"dangling end\" energies for bases adjacent to helices in free ends and multi-loops\n"
+details="\nWith (-d1) only unpaired bases can participate in at most one dangling end, this is the\
+ default for mfe folding but unsupported for the partition function folding.\n\nWith -d2 this check is ignored,\
+ dangling energies will be added for the bases adjacent to a helix on both sides in any case; this is the\
+ default for partition function folding (-p).\n\n-d0 ignores dangling ends altogether (mostly for\
+ debugging).\n\nWith -d3 mfe folding will allow coaxial stacking of adjacent helices in multi-loops. At the\
+ moment the implementation will not allow coaxial stacking of the two interior pairs in a loop of degree 3\
+ and works only for mfe folding.\n\nNote that by default (as well as with -d1 and -d3) pf and mfe folding\
+ treat dangling ends differently. Use -d2 in addition to -p to ensure that both algorithms use the same\
+ energy model.\n"
+int
+default="1"
+optional
+
+option  "noLP"  -
+"Produce structures without lonely pairs (helices of length 1).\n"
+details="For partition function folding this only disallows pairs that can only occur isolated. Other\
+ pairs may still occasionally occur as helices of length 1.\n"  flag  off
+
+option  "noGU"  -
+"Do not allow GU pairs\n"
+flag
+off
+
+option  "noClosingGU" -
+"Do not allow GU pairs at the end of helices\n"
+flag
+off
+
+option  "noconv"  -
+"Do not automatically substitude nucleotide \"T\" with \"U\"\n"
+flag
+off
+
+option  "nsp" -
+"Allow other pairs in addition to the usual AU,GC,and GU pairs.\n"
+details="Its argument is a comma separated list of additionally allowed pairs. If the\
+ first character is a \"-\" then AB will imply that AB and BA are allowed pairs.\ne.g.\
+ RNAfold -nsp -GA  will allow GA and AG pairs. Nonstandard pairs are given 0 stacking\
+ energy.\n"
+string
+optional
+
+option  "energyModel" e
+"Rarely used option to fold sequences from the artificial ABCD... alphabet, where\
+ A pairs B, C-D etc.  Use the energy parameters for GC (-e 1) or AU (-e 2) pairs.\n"
+int
+optional
+
+option  "paramFile" P
+"Read energy parameters from paramfile, instead of using the default parameter set.\n"
+details="A sample parameter file should accompany your distribution.\nSee the RNAlib\
+ documentation for details on the file format.\n"
+string
+typestr="paramfile"
+optional
+
+option  "pfScale" S
+"In the calculation of the pf use scale*mfe as an estimate for the ensemble\
+ free energy (used to avoid overflows). The default is 1.07, useful values are 1.0 to 1.2. Occasionally needed\
+ for long sequences.\nYou can also recompile the program to use double precision (see the README file).\n"  double
+option  "MEA"             - "Calculate the MEA structure\n" float default="1."  argoptional optional
+
+
+text    "\033[1m\"AUTHORS\"\033[2m\033[0m\n\nStefan Washietl, Ivo L Hofacker, Peter F Stadler.\n\n"
+text    "\033[1m\"BUGS\"\033[2m\033[0m\n\nNone yet (or still too much...) wash@mit.edu\033[0m\n"

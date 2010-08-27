@@ -233,7 +233,7 @@ int main(int argc, char *argv[])
 
       if (do_backtrack) {
         printf("%s", pf_struc);
-        if (!istty) printf(" [%6.2f]\n", energy);
+        if (!istty) printf(" [%6.4f]\n", energy);
         else printf("\n");
       }
       if ((istty)||(!do_backtrack))

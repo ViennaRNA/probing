@@ -25,6 +25,12 @@ int PS_color_dot_plot_turn(char *seq, cpair *pi, char *filename, int winSize);
 
 int PS_dot_plot_list(char *seq, char *filename, struct plist *pl,
          struct plist *mf, char *comment);
+
+int PS_dot_plot_list_epsilon(char *string, char *wastlfile, struct plist *pl,
+                             struct plist *mf, double* epsilon, char *comment);
+
+
+
 int PS_dot_plot_turn(char *seq, struct plist *pl, char *filename,
          int winSize);
 int PS_color_aln(const char *structure, const char *filename, 

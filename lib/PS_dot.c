@@ -39,6 +39,7 @@ PUBLIC int   rna_plot_type = 1;  /* 0 = simple, 1 = naview */
 
 PUBLIC int   PS_dot_plot(char *string, char *wastlfile);
 PUBLIC int   PS_color_dot_plot(char *seq, cpair *pi, char *wastlfile);
+
 PUBLIC int   PS_dot_plot_list(char *string, char *wastlfile, struct plist *pl,
 			      struct plist *mf, char *comment);
 PUBLIC int   PS_dot_plot_turn(char *seq, struct plist *pl, char *wastlfile,
@@ -672,9 +673,9 @@ const char *RNAdp_prolog =
 "} bind def\n\n"
 "/drawseq {\n"
 "% print sequence along all 4 sides\n"
-"[ [0.7 -0.3 0 ]\n"
+"[ [0.7 -1.3 0 ]\n"
 "  [0.7 0.7 len add 0]\n"
-"  [-0.3 len sub -0.4 -90]\n"
+"  [-0.3 len sub -1.4 -90]\n"
 "  [-0.3 len sub 0.7 len add -90]\n"
 "] {\n"
 "   gsave\n"
@@ -713,6 +714,36 @@ const char *RNAdp_prolog =
 "  } if\n"
 "  0.5 neg dup translate\n"
 "} bind def\n\n"
+"/NEG {0.7 0 0 setrgbcolor} bind def\n"
+"/POS {0 0.7 0 setrgbcolor} bind def\n"
+"/cbox {\n"
+"   dup 0 lt {\n"
+"       NEG\n"
+"       neg\n"
+"   } {\n"
+"       POS\n"
+"   } ifelse\n"
+"  logscale {\n"
+"      log dup add lpmin div 1 exch sub dup 0 lt { pop 0 } if\n"
+"   } if\n"
+"   3 1 roll\n"
+"   exch len exch sub 1 add box\n"
+"   0 setgray\n"
+"} bind def\n"
+"/drawvalues {"
+"%    1 1 len { pop rand 1001 mod 500 sub 500 div} for\n"
+"%    len array astore /values exch def\n"
+"    1 values {\n"
+"      len 1 add exch 2 index exch cbox\n"
+"      1 add\n"
+"    } forall\n"
+"    pop\n"
+"    1 values {\n"
+"      1 index exch 0 exch cbox\n"
+"      1 add\n"
+"    } forall\n"
+"    pop\n"
+"} bind def\n"
 "end\n"
 "%%EndProlog\n";
 
@@ -938,6 +969,75 @@ PUBLIC int PS_dot_plot_list(char *seq, char *wastlfile,
   return 1; /* success */
 }
 
+PUBLIC int PS_dot_plot_list_epsilon(char *seq, char *wastlfile,
+                                    struct plist *pl, struct plist *mf, double* epsilon, char *comment) {
+  FILE *wastl;
+  int length, i;
+  double tmp, max;
+  struct plist *pl1;
+
+  double* values;
+
+  length= strlen(seq);
+  wastl = PS_dot_common(seq, wastlfile, comment, 0);
+
+  values =  (double *) space(sizeof(double)*(length+1));
+
+  max = 0.0;
+  
+  for (i=1; i <= length; i++){
+    if (fabs(epsilon[i])>max){
+      max = fabs(epsilon[i]);
+    }
+  }
+
+  if ( max == 0.0 ){
+    max = 1.0;
+  }
+
+  for (i=1; i <= length; i++){
+    values[i] = epsilon[i]/max;
+  }
+
+  if (wastl==NULL) return 0; /* return 0 for failure */
+
+  fprintf(wastl,"%%data starts here\n");
+  /* print boxes in upper right half*/
+  for (pl1=pl; pl1->i>0; pl1++) {
+    tmp = sqrt(pl1->p);
+    fprintf(wastl,"%d %d %1.9f ubox\n", pl1->i, pl1->j, tmp);
+  }
+
+  /* print boxes in lower left half (mfe) */
+  for (pl1=mf; pl1->i>0; pl1++) {
+    tmp = sqrt(pl1->p);
+    fprintf(wastl,"%d %d %1.7f lbox\n", pl1->i, pl1->j, tmp);
+  }
+
+  fprintf(wastl, "/values [\n");
+
+  for (i=1; i <= length; i++){
+    //values[i] = epsilon[i]/max;
+    fprintf(wastl, "%.4f ",epsilon[i]/max);
+  }
+
+  fprintf(wastl, "]\n def\n drawvalues\n");
+  
+
+  fprintf(wastl,"showpage\n"
+	  "end\n"
+	  "%%%%EOF\n");
+  fclose(wastl);
+  return 1; /* success */
+}
+
+
+
+
+
+
+
+
 const char *RNAdp_prolog_turn =
 "/drawseq_turn {"
 "% print sequence at bottom\n"
@@ -1065,6 +1165,7 @@ static FILE * PS_dot_common(char *seq, char *wastlfile,
     fprintf(stderr, "can't open %s for dot plot\n", wastlfile);
     return NULL; /* return 0 for failure */
   }
+
   strncpy(name, wastlfile, 30);
   if ((c=strrchr(name, '_'))!=0) *c='\0';
 
@@ -1076,7 +1177,7 @@ static FILE * PS_dot_common(char *seq, char *wastlfile,
   if (winsize>0)
     fprintf(wastl, "%%%%BoundingBox: 66 530 520 650\n");
   else
-    fprintf(wastl, "%%%%BoundingBox: 66 211 518 662\n");
+    fprintf(wastl, "%%%%BoundingBox: 56 200 518 682\n");
   fprintf(wastl,
 	  "%%%%DocumentFonts: Helvetica\n"
 	  "%%%%Pages: 1\n"
@@ -1089,8 +1190,8 @@ static FILE * PS_dot_common(char *seq, char *wastlfile,
 
   fprintf(wastl,"DPdict begin\n"
 	  "%%delete next line to get rid of title\n"
-	  "270 665 moveto /Helvetica findfont 14 scalefont setfont "
-	  "(%s) show\n\n", name);
+	  "230 665 moveto /Helvetica findfont 14 scalefont setfont "
+	  "(%s) show\n\n", comment);
 
   fprintf(wastl,"/sequence { (\\\n");
   for (i=0; i<strlen(seq); i+=255)
