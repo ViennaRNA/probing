@@ -1,0 +1,2 @@
+EXTRA_DIST =  Antizyme_FSE.fa HCV_SLIV.fa IRE.fa nos_TCE.fa SCARNA14.fa SNORA56.fa tRNA.fa ctRNA_pGA1.fa HDV_ribozyme.fa  let-7.fa      Purine.fa     SCARNA15.fa  SNORD105.fa  Tymo_tRNA-like.fa Entero_5_CRE.fa HepC_CRE.fa lin-4.fa Rhino_CRE.fa SECIS.fa SNORD64.fa ykoK.fa Entero_CRE.fa Histone3.fa Lysine.fa RNA-OUT.fa SNORA14.fa SNORD86.fa GcvB.fa Hsp90_CRE.fa mir-10.fa rncO.fa SNORA18.fa snoU83B.fa glmS.fa IBV_D-RNA.fa mir-194.fa Rota_CRE.fa SNORA38.fa TCV_H5.fa HACA_sno_Snake.fa Intron_gpII.fa mir-BART1.fa s2m.fa SNORA40.fa TCV_Pr.fa
+

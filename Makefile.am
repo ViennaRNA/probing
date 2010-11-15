@@ -15,8 +15,8 @@ if MAKE_KINFOLD
    KINDIR = Kinfold
 endif
 
-SUBDIRS = lib Progs man Utils H $(PLDIR) $(CLDIR) $(FDIR) $(KINDIR)
+SUBDIRS = lib Progs man Utils H  examples 
 
 pkgdata_DATA = vienna13.par default.par
 
-EXTRA_DIST = $(pkgdata_DATA) INSTALL.configure Readseq
+EXTRA_DIST = $(pkgdata_DATA) INSTALL.configure

@@ -16,7 +16,7 @@ if USE_OPENMP
   AM_LDFLAGS = ../lib/libRNA.a -lm -fopenmp
 endif
 
-noinst_HEADERS = intloops.h list.h
+noinst_HEADERS = intl11dH.h intl11.h intl21dH.h intl21.h intl22dH.h intl22.h intloops.h list.h 
 
 EXTRA_DIST = circfold.inc alicircfold.inc
 

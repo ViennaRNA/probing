@@ -115,13 +115,17 @@ PRIVATE void  make_ptypes(const short *S, const char *structure);
 PRIVATE void  pf_circ(const char *sequence, char *structure);
 PRIVATE void  pf_linear(const char *sequence, char *structure);
 PRIVATE void  pf_linear_pb(const char *sequence, char *structure);
-PRIVATE double exp_perturbation(int i, int j, pf_paramT *P, int debug);
+PRIVATE double exp_perturbation(int i, int j, pf_paramT *P);
 PRIVATE void  pf_create_bppm(const char *sequence, char *structure);
 PRIVATE void  pf_create_bppm_pb(const char *sequence, char *structure);
 PRIVATE void  backtrack(int i, int j);
 PRIVATE void  backtrack_qm(int i, int j);
 PRIVATE void  backtrack_qm1(int i,int j);
 PRIVATE void  backtrack_qm2(int u, int n);
+PRIVATE void  backtrack_pb(int i, int j);
+PRIVATE void  backtrack_qm_pb(int i, int j);
+PRIVATE void  backtrack_qm1_pb(int i,int j);
+
 
 /*
 #################################
@@ -136,6 +140,8 @@ PUBLIC float pf_fold(const char *sequence, char *structure)
   FLT_OR_DBL  Q;
   double      free_energy;
   int         n = (int) strlen(sequence);
+
+  //fprintf(stderr, "dangles: %d\n", dangles);
 
   circular = 0;
 
@@ -160,12 +166,13 @@ PUBLIC float pf_fold(const char *sequence, char *structure)
 }
 
 /*-----------------------------------------------------------------*/
-PUBLIC float pf_fold_pb(const char *sequence, char *structure)
-{
+PUBLIC float pf_fold_pb(const char *sequence, char *structure){
 
   FLT_OR_DBL  Q;
   double      free_energy;
   int         n = (int) strlen(sequence);
+
+  //fprintf(stderr, "dangles: %d\n", dangles);
 
   circular = 0;
 
@@ -184,6 +191,8 @@ PUBLIC float pf_fold_pb(const char *sequence, char *structure)
 
   /* calculate base pairing probability matrix (bppm)  */
   if(do_backtrack) pf_create_bppm_pb(sequence, structure);
+
+  //fprintf(stderr, "%.13f\n", free_energy);
 
   return free_energy;
 }
@@ -354,10 +363,6 @@ PRIVATE void pf_linear_pb(const char *sequence, char *structure)
   FLT_OR_DBL  expMLclosing = pf_params->expMLclosing;
   double      max_real;
 
-  //printf("%.2f\n", epsilon[0]);
-  //printf("%.2f\n", exp_perturbation(1,5,pf_params));
-
-
   max_real = (sizeof(FLT_OR_DBL) == sizeof(float)) ? FLT_MAX : DBL_MAX;
 
   n = (int) strlen(sequence);
@@ -385,7 +390,7 @@ PRIVATE void pf_linear_pb(const char *sequence, char *structure)
       ij = iindx[i]-j;
       //q[ij]=1.0*scale[d+1];
       
-      q[ij]=1.0*scale[d+1]*exp_perturbation(i,j,pf_params,0);
+      q[ij]=1.0*scale[d+1]*exp_perturbation(i,j,pf_params);
       qb[ij]=qm[ij]=0.0;
     }
 
@@ -402,7 +407,7 @@ PRIVATE void pf_linear_pb(const char *sequence, char *structure)
         /*hairpin contribution*/
         if (((type==3)||(type==4))&&no_closingGU) qbt1 = 0;
         else
-          qbt1 = exp_E_Hairpin(u, type, S1[i+1], S1[j-1], sequence+i-1, pf_params) * scale[u+2] * exp_perturbation(i+1,j-1,pf_params,1);
+          qbt1 = exp_E_Hairpin(u, type, S1[i+1], S1[j-1], sequence+i-1, pf_params) * scale[u+2] * exp_perturbation(i+1,j-1,pf_params);
         /* interior loops with interior pair k,l */
         for (k=i+1; k<=MIN2(i+MAXLOOP+1,j-TURN-2); k++) {
           u1 = k-i-1;
@@ -413,8 +418,8 @@ PRIVATE void pf_linear_pb(const char *sequence, char *structure)
               qbt1 += qb[iindx[k]-l] * (scale[u1+j-l+1] *
                                         exp_E_IntLoop(u1, j-l-1, type, type_2,
                                                       S1[i+1], S1[j-1], S1[k-1], S1[l+1], pf_params) * 
-                                        exp_perturbation(i+1,k-1,pf_params,2) *
-                                        exp_perturbation(l+1,j-1,pf_params,3)
+                                        exp_perturbation(i+1,k-1,pf_params) *
+                                        exp_perturbation(l+1,j-1,pf_params)
                                         );
             }
           }
@@ -432,7 +437,7 @@ PRIVATE void pf_linear_pb(const char *sequence, char *structure)
       /* construction of qqm matrix containing final stem
          contributions to multiple loop partition function
          from segment i,j */
-      qqm[i] = qqm1[i]*expMLbase[1] * exp_perturbation(j,j,pf_params,4); // j unpaired
+      qqm[i] = qqm1[i]*expMLbase[1] * exp_perturbation(j,j,pf_params); // j unpaired
       if (type) { // ij paired
         qbt1 = qb[ij] * exp_E_MLstem(type, ((i>1) || circular) ? S1[i-1] : -1, ((j<n) || circular) ? S1[j+1] : -1, pf_params);
         qqm[i] += qbt1;
@@ -444,7 +449,7 @@ PRIVATE void pf_linear_pb(const char *sequence, char *structure)
       temp = 0.0;
       ii = iindx[i];  /* ii-k=[i,k-1] */
       for (k=j; k>i; k--) {
-        temp += (qm[ii-(k-1)] + expMLbase[k-i] * exp_perturbation(i,k-1,pf_params,5))*qqm[k]; // siehe Zettel **; unpaired i..k-1
+        temp += (qm[ii-(k-1)] + expMLbase[k-i] * exp_perturbation(i,k-1,pf_params))*qqm[k]; // siehe Zettel **; unpaired i..k-1
       }
       qm[ij] = (temp + qqm[i]);
 
@@ -454,12 +459,12 @@ PRIVATE void pf_linear_pb(const char *sequence, char *structure)
         qbt1 *= exp_E_ExtLoop(type, ((i>1) || circular) ? S1[i-1] : -1, ((j<n) || circular) ? S1[j+1] : -1, pf_params);
       
       //qq[i] = qq1[i]*  1.0 * scale[1] + qbt1;
-      qq[i] = qq1[i]* exp_perturbation(j,j,pf_params,6) * scale[1] + qbt1;
+      qq[i] = qq1[i]* exp_perturbation(j,j,pf_params) * scale[1] + qbt1;
       
       /*construction of partition function for segment i,j */
 
       //temp = 1.0*scale[1+j-i] + qq[i];
-      temp = exp_perturbation(i,j,pf_params,7)*scale[1+j-i] + qq[i];
+      temp = exp_perturbation(i,j,pf_params)*scale[1+j-i] + qq[i];
 
       for (k=i; k<j-1; k++) temp += q[ii-k]*qq[k+1];
       q[ij] = temp;
@@ -479,8 +484,6 @@ PRIVATE void pf_linear_pb(const char *sequence, char *structure)
     tmp = qqm1; qqm1=qqm; qqm=tmp;
   }
 }
-
-
 
 
 
@@ -574,7 +577,7 @@ PUBLIC void pf_create_bppm(const char *sequence, char *structure)
 
     for (k=1; k<=n; k++) {
       q1k[k] = q[iindx[1] - k];
-      qln[k] = q[iindx[k] -n];
+      qln[k] = q[iindx[k] - n];
     }
     q1k[0] = 1.0;
     qln[n+1] = 1.0;
@@ -819,8 +822,8 @@ PUBLIC void pf_create_bppm_pb(const char *sequence, char *structure)
               pr[kl] += pr[ij] * (scale[k-i+j-l] *
                                   exp_E_IntLoop(k-i-1, j-l-1, type, type_2,
                                                 S1[i+1], S1[j-1], S1[k-1], S1[l+1], pf_params)*
-                                  exp_perturbation(i+1,k-1,pf_params,8) *
-                                  exp_perturbation(l+1,j-1,pf_params,9));
+                                  exp_perturbation(i+1,k-1,pf_params) *
+                                  exp_perturbation(l+1,j-1,pf_params));
             }
           }
       }
@@ -843,9 +846,13 @@ PUBLIC void pf_create_bppm_pb(const char *sequence, char *structure)
         tt = ptype[kl];
         prmt *= expMLclosing;
         prml[ i] = prmt;
-        prm_l[i] = prm_l1[i]*expMLbase[1]*exp_perturbation(l,l,pf_params,10)+prmt1; //Tip: l unpaired
-
-        prm_MLb = prm_MLb*expMLbase[1]*exp_perturbation(l,l,pf_params,11)+prml[i]; //Tip: l unpaired
+        prm_l[i] = prm_l1[i]*expMLbase[1]*exp_perturbation(l+1,l+1,pf_params)+prmt1;
+        
+        //prm_l[i] = prm_l1[i]*expMLbase[1]+prmt1; //Tip: l unpaired
+        
+        prm_MLb = prm_MLb*expMLbase[1]*exp_perturbation(i,i,pf_params)+prml[i]; 
+        //prm_MLb = prm_MLb*expMLbase[1]+prml[i]; //Tip: l unpaired
+        
         /* same as:    prm_MLb = 0;
            for (i=1; i<=k-1; i++) prm_MLb += prml[i]*expMLbase[k-i-1]; */
 
@@ -1007,6 +1014,9 @@ PUBLIC void free_pf_arrays(void)
   init_length=0;
   free(S); S=NULL;
   free(S1); S1=NULL;
+
+  free(pf_params); // wash: Free also pf_params
+
 }
 /*---------------------------------------------------------------------------*/
 
@@ -1173,6 +1183,7 @@ char *pbacktrack(char *seq) {
 
   return pstruc;
 }
+
 char *pbacktrack_circ(char *seq){
   double r, qt;
   int i, j, k, l, n;
@@ -1276,7 +1287,7 @@ static void backtrack_qm(int i, int j){
     backtrack_qm1(k,j);
 
     if(k<i+TURN) break; /* no more pairs */
-    r = urn() * (qm[iindx[i]-(k-1)] + expMLbase[k-i]);
+    r = urn() * (qm[iindx[i]-(k-1)] + expMLbase[k-i]  );
     if(expMLbase[k-i] >= r) break; /* no more pairs */
     j = k-1;
   }
@@ -1375,6 +1386,165 @@ static void backtrack(int i, int j) {
     backtrack_qm(i,j);
   }
 }
+
+
+/*
+  stochastic backtracking in pf_fold arrays
+  returns random structure S with Boltzman probabilty
+  p(S) = exp(-E(S)/kT)/Z
+*/
+char *pbacktrack_pb(char *seq) {
+  double r, qt;
+  int i,j,n, start;
+  sequence = seq;
+  n = strlen(sequence);
+
+  if (init_length<1)
+    nrerror("can't backtrack without pf arrays.\n"
+            "Call pf_fold() before pbacktrack()");
+  pstruc = space((n+1)*sizeof(char));
+  
+  for (i=0; i<n; i++) pstruc[i] = '.';
+
+  start = 1;
+  while (start<n) {
+    /* find i position of first pair */
+    for (i=start; i<n; i++) {
+      r = urn() * qln[i];
+      //if (r > qln[i+1]*scale[1])  break; /* i is paired */
+      if (r > qln[i+1] * scale[1] * exp_perturbation(i,i,pf_params))  break; /* i is paired */
+    }
+    if (i>=n) break; /* no more pairs */
+    /* now find the pairing partner j */
+    //r = urn() * (qln[i] - qln[i+1]*scale[1]);
+    r = urn() * (qln[i] - (qln[i+1]*scale[1]*exp_perturbation(i,i,pf_params)));
+    for (qt=0, j=i+1; j<=n; j++) {
+      int type;
+      type = ptype[iindx[i]-j];
+      if (type) {
+        double qkl;
+        qkl = qb[iindx[i]-j];
+        if (j<n) qkl *= qln[j+1];
+        qkl *=  exp_E_ExtLoop(type, (i>1) ? S1[i-1] : -1, (j<n) ? S1[j+1] : -1, pf_params);
+        qt += qkl;
+        if (qt > r) break; /* j is paired */
+      }
+    }
+    if (j==n+1) nrerror("backtracking failed in ext loop");
+    start = j+1;
+    backtrack_pb(i,j);
+  }
+
+  return pstruc;
+}
+
+static void backtrack_pb(int i, int j) {
+  do {
+    double r, qbt1;
+    int k, l, type, u, u1;
+
+    pstruc[i-1] = '('; pstruc[j-1] = ')';
+
+    r = urn() * qb[iindx[i]-j];
+    type = ptype[iindx[i]-j];
+    u = j-i-1;
+    /*hairpin contribution*/
+    if (((type==3)||(type==4))&&no_closingGU) qbt1 = 0;
+    else
+      qbt1 = exp_E_Hairpin(u, type, S1[i+1], S1[j-1], sequence+i-1, pf_params) *scale[u+2] 
+    * exp_perturbation(i+1,j-1,pf_params); /* add scale[u+2] */
+
+    if (qbt1>r) return; /* found the hairpin we're done */
+
+    for (k=i+1; k<=MIN2(i+MAXLOOP+1,j-TURN-2); k++) {
+      u1 = k-i-1;
+      for (l=MAX2(k+TURN+1,j-1-MAXLOOP+u1); l<j; l++) {
+        int type_2;
+        type_2 = ptype[iindx[k]-l];
+        if (type_2) {
+          type_2 = rtype[type_2];
+          /* add *scale[u1+u2+2] */
+          qbt1 += qb[iindx[k]-l] * (scale[u1+j-l+1] *
+                                    exp_E_IntLoop(u1, j-l-1, type, type_2,
+                                                  S1[i+1], S1[j-1], S1[k-1], S1[l+1], pf_params))
+            * exp_perturbation(i+1,k-1,pf_params) * exp_perturbation(l+1,j-1,pf_params);
+        }
+        if (qbt1 > r) break;
+      }
+      if (qbt1 > r) break;
+    }
+    if (l<j) {
+      i=k; j=l;
+    }
+    else break;
+  } while (1);
+
+  /* backtrack in multi-loop */
+  {
+    double r, qt;
+    int k, l, ii, jj, type;
+
+    i++; j--;
+    /* find the first split index */
+    ii = iindx[i]; /* ii-j=[i,j] */
+    jj = jindx[j]; /* jj+i=[j,i] */
+    for (qt=0., k=i+1; k<j; k++) qt += qm[ii-(k-1)]*qm1[jj+k];
+    r = urn() * qt;
+    for (qt=0., k=i+1; k<j; k++) {
+      qt += qm[ii-(k-1)]*qm1[jj+k];
+      if (qt>=r) break;
+    }
+    if (k>=j) nrerror("backtrack failed, can't find split index ");
+
+    backtrack_qm1_pb(k, j);
+
+    j = k-1;
+    backtrack_qm_pb(i,j);
+  }
+}
+
+
+static void backtrack_qm_pb(int i, int j){
+  /* divide multiloop into qm and qm1  */
+  double qmt, r;
+  int k;
+  while(j>i){
+    /* now backtrack  [i ... j] in qm[] */
+    r = urn() * qm[iindx[i] - j];
+    qmt = qm1[jindx[j]+i]; 
+    k = i;
+    if(qmt<r)
+      for(k=i+1; k<=j; k++){
+        qmt += (qm[iindx[i]-(k-1)]+expMLbase[k-i]*exp_perturbation(i,k-1,pf_params))*qm1[jindx[j]+k];
+        if(qmt >= r) break;
+      }
+    if(k>j) nrerror("backtrack failed in qm");
+
+    backtrack_qm1_pb(k,j);
+
+    if(k<i+TURN) break; /* no more pairs */
+    r = urn() * (qm[iindx[i]-(k-1)] + expMLbase[k-i] * exp_perturbation(i,k-1,pf_params));
+    if ((expMLbase[k-i] * exp_perturbation(i,k-1,pf_params)) >= r) break; /* no more pairs */
+    j = k-1;
+  }
+}
+
+static void backtrack_qm1_pb(int i,int j) {
+  /* i is paired to l, i<l<j; backtrack in qm1 to find l */
+  int ii, l, type;
+  double qt, r;
+  r = urn() * qm1[jindx[j]+i];
+  ii = iindx[i];
+  for (qt=0., l=i+TURN+1; l<=j; l++) {
+    type = ptype[ii-l];
+    if (type)
+      qt +=  qb[ii-l] * exp_E_MLstem(type, S1[i-1], S1[l+1], pf_params) * expMLbase[j-l] * exp_perturbation(l+1,j,pf_params);
+    if (qt>=r) break;
+  }
+  if (l>j) nrerror("backtrack failed in qm1");
+  backtrack_pb(i,l);
+}
+
 
 PUBLIC double mean_bp_dist(int length) {
   /* compute the mean base pair distance in the thermodynamic ensemble */
@@ -1667,7 +1837,7 @@ PUBLIC double expLoopEnergy(int u1, int u2, int type, int type2,
   return z;
 }
 
-PRIVATE double exp_perturbation(int i, int j, pf_paramT *P, int debug){
+PRIVATE double exp_perturbation(int i, int j, pf_paramT *P){
 
   int x;
   double kT;
@@ -1676,15 +1846,11 @@ PRIVATE double exp_perturbation(int i, int j, pf_paramT *P, int debug){
 
   double q=1.0;
 
-  //printf("%i %i (%i)\n", i, j, debug);
-  
   for (x=i; x<=j; x++){
     q *= exp((-1) * epsilon[x]/kT);
     //printf("%i %.2f\n", x, epsilon[x]);
     //q *= exp((-1) * 1000/kT);
   }
-
-  //printf("%.2f\n", q);
 
   return q;
 

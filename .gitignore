@@ -19,3 +19,11 @@ TAGS
 *~
 mkinstalldirs
 *cmdl.[ch]
+compile
+config.guess
+config.sub
+doc/
+man/RNAlib.info
+man/texinfo.tex
+
+

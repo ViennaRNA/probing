@@ -37,14 +37,21 @@ argoptional
 optional
 
 option  "step" -
-"Initial step-size for deepest descent algorithm.\n" 
+"Initial step-size.\n" 
+double 
+default="0.1"
+argoptional
+optional
+
+option  "tolerance" -
+"Tolerance parameter for some GSL minimizers.\n" 
 double 
 default="0.01"
 argoptional
 optional
 
 option  "precision" - 
-"Stop if objective function ratio between two iterations is smaller than precision"
+"Stop criterion."
 double
 default="0.001"
 argoptional
@@ -54,6 +61,21 @@ option  "maxN" -
 "Maximum number of iterations"
 int
 default="200"
+argoptional
+optional
+
+option  "method" - 
+"Method used for minimization:\n\n\
+0 ... Gradient descent\n\
+1 ... Gradient desc. (Barzilai & Borwein steps)\n\n\
+GSL algorithms:\n\
+2 ... Fletcher-Reeves conjugate gradient\n\
+3 ... Polak-Ribiere conjugate gradient\n\
+4 ... Broyden-Fletcher-Goldfarb-Shanno\n\
+5 ... Broyden-Fletcher-Goldfarb-Shanno improved\n\
+6 ... Gradient descent (GSL implmementation)"
+int
+default="0"
 argoptional
 optional
 
@@ -70,6 +92,11 @@ pair probability matrix and perturbation vector is written to a Postscript\
 formatted file iteration1.ps, iteration2.ps, ..., iteration3.ps\n" 
 flag
 off
+
+option  "outfile" -
+"File to which results are printed in a tab delimited table\n"
+string
+optional
 
 text "\n\n\033[1mGeneral RNAfold options\n \033[2m\033[0m"
 

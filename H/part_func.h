@@ -18,7 +18,7 @@
 
 /* functions from part_func.c */
 float   pf_fold(const char *sequence, char *structure);
-float   pf_fold_pb(const char *sequence, char *structure);
+float  pf_fold_pb(const char *sequence, char *structure);
 float   pf_circ_fold(const char *sequence, char *structure);
 /* calculate partition function and base pair probabilities */
 void    init_pf_fold(int length);    /* allocate space for pf_fold() */
@@ -34,6 +34,7 @@ int     get_pf_arrays(short **S_p, short **S1_p, char **ptype_p, FLT_OR_DBL **qb
 *** \return           A sampled secondary structure in dot-bracket notation
 **/
 char    *pbacktrack(char *sequence);
+char    *pbacktrack_pb(char *sequence);
 
 /**
 *** <H2>Sample a secondary structure of a circular RNA from the Boltzmann ensemble according its probability</H2>
