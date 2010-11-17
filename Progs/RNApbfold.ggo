@@ -79,6 +79,24 @@ default="0"
 argoptional
 optional
 
+option  "sampleGradient" s
+"Sample conditional probabilities required to calculate the gradient by sampling via stochastic backtracking.\n"
+flag
+off
+
+option  "numericalGradient" -
+"Calculate gradient by numerical differentiation (mainly for debugging).\n"
+flag
+off
+
+
+option  "sampleGradientN" - 
+"Maximum number of iterations"
+int
+default="10000"
+argoptional
+optional
+
 
 option  "constraint"  C
 "Use reference structure given in input file as dot-bracket string to calculate constraints (for testing).\n"
@@ -93,8 +111,15 @@ formatted file iteration1.ps, iteration2.ps, ..., iteration3.ps\n"
 flag
 off
 
+option  "psDir" -
+"Directory to which write postscript files. Default: dotplots\n"
+string
+optional
+
+
+
 option  "outfile" -
-"File to which results are printed in a tab delimited table\n"
+"File to which results are printed in a tab delimited table. Default: stats.dat\n"
 string
 optional
 

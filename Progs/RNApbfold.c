@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/stat.h>
 #include "fold.h"
 #include "part_func.h"
 #include "fold_vars.h"
@@ -15,7 +16,6 @@
 #include <gsl/gsl_multimin.h>
 #include <gsl/gsl_blas_types.h>
 #include <gsl/gsl_blas.h>
-
 
 typedef struct {
   int length;
@@ -34,9 +34,8 @@ PRIVATE void   calculate_fdf (const gsl_vector *x, void *params, double *f, gsl_
 
 PRIVATE void get_pair_prob_vector(double** matrix, double* vector, int length, int type); 
 PRIVATE double calculate_norm (double* vector, int length);
-PRIVATE void print_dotplot(char* seq, char* struc, int length, int iteration, double D);
 PRIVATE char* print_mea_string(FILE* statsfile, char* seq, int length);
-
+PRIVATE void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iteration, int count_df_evaluations, double D, double norm);
 PRIVATE void test_folding(char* seq, int length);
 PRIVATE void test_stochastic_backtracking(char* seq, int length);
 PRIVATE void test_gradient_sampling(gsl_multimin_function_fdf minimizer_func,  minimizer_pars_struct minimizer_pars);
@@ -46,6 +45,7 @@ PRIVATE struct plist *b2plist(const char *struc);
 PRIVATE struct plist *make_plist(int length, double pmin);
 
 PUBLIC double *epsilon;             /* Perturbation vector in kcal/Mol */
+PUBLIC double **exp_pert;
 PRIVATE double *q_unpaired;         /* Vector of probs. of being unpaired in the experimental structure */
 PRIVATE double **p_pp;              /* Base pair probability matrix of predicted structure              */
 PRIVATE double *p_unpaired;         /* Vector of probs. of being unpaired in the predicted structure    */
@@ -53,9 +53,11 @@ PRIVATE double **p_unpaired_cond;   /* List of vectors p_unpaired with the condi
 PRIVATE double **p_unpaired_cond_sampled;  
 PRIVATE int count_df_evaluations;
 
-PRIVATE int  numerically = 0;
-PRIVATE double numeric_d;
+PRIVATE int  numerical = 0;
+PRIVATE double numeric_d = 0.00001;
 PRIVATE int sample_conditionals = 0;
+PRIVATE char psDir[1024];
+PRIVATE int noPS;
 
 int debug=0;
 
@@ -66,7 +68,7 @@ int main(int argc, char *argv[]){
   char          *string, *input_string, *structure=NULL, *cstruc=NULL;
   char          fname[80], ffname[80], gfname[80], *ParamFile=NULL;
   char          *ns_bases=NULL, *c;
-  int           i, j, ii, jj, mu, length, l, sym, r, pf=0, noPS=0, noconv=0;
+  int           i, j, ii, jj, mu, length, l, sym, r, pf=0, noconv=0;
   unsigned int  input_type;
   double        energy, min_en, kT, sfact=1.07;
   int           doMEA=0, circular = 0, N;
@@ -118,16 +120,17 @@ int main(int argc, char *argv[]){
   minimizer_pars_struct minimizer_pars;
 
   char *constraints;
-
   char outfile[256];
-
   FILE* fh;
-  
+
+ 
   do_backtrack  = 1;
   string        = NULL;
 
+  noPS = 0;
   outfile[0]='\0';
-
+  strcpy(psDir, "dotplots");
+  
   if(RNAfold_cmdline_parser (argc, argv, &args_info) != 0) exit(1);
 
   /* RNAbpfold specific options */
@@ -140,6 +143,9 @@ int main(int argc, char *argv[]){
   if (args_info.method_given) method_id = args_info.method_arg;
   if (args_info.tolerance_given) tolerance = args_info.tolerance_arg;
   if (args_info.outfile_given) strcpy(outfile, args_info.outfile_arg);
+  if (args_info.sampleGradient_given) sample_conditionals=1;
+  if (args_info.numericalGradient_given) numerical=1;
+  if (args_info.psDir_given) strcpy(psDir, args_info.psDir_arg);      
   
   /* Generic RNAfold options */
   
@@ -157,15 +163,16 @@ int main(int argc, char *argv[]){
   if (args_info.pfScale_given)     sfact = args_info.pfScale_arg;
   if (args_info.noPS_given)        noPS=1;
 
-  /*
-  if(args_info.MEA_given){
-    pf = doMEA = 1;
-    if(args_info.MEA_arg != -1)
-      MEAgamma = args_info.MEA_arg;
-   }
-  */
-
   RNAfold_cmdline_parser_free (&args_info);
+
+  if (!noPS){
+    struct stat stat_p;	
+    if (stat (psDir, &stat_p) != 0){
+      if (mkdir(psDir, S_IRWXU|S_IROTH|S_IRGRP ) !=0){
+        fprintf(stderr, "WARNING: Could not create directory: %s", psDir);
+      }
+    }
+  }
 
   if (ParamFile != NULL) {
     read_parameter_file(ParamFile);
@@ -225,6 +232,7 @@ int main(int argc, char *argv[]){
   /* Allocating space */
   
   epsilon =     (double *) space(sizeof(double)*(length+1));
+  exp_pert =  (double **)space(sizeof(double *)*(length+1));
   prev_epsilon = (double *) space(sizeof(double)*(length+1));
   gradient =    (double *) space(sizeof(double)*(length+1));
   gradient_numeric =    (double *) space(sizeof(double)*(length+1));
@@ -242,13 +250,13 @@ int main(int argc, char *argv[]){
     p_unpaired_cond[i] = (double *) space(sizeof(double)*(length+1));
     p_unpaired_cond_sampled[i] = (double *) space(sizeof(double)*(length+1));
     p_pp[i] = (double *) space(sizeof(double)*(length+1));
+    exp_pert[i] = (double *) space(sizeof(double)*(length+1));
     for (j=0; j <= length; j++){
       p_pp[i][j]=p_unpaired_cond[i][j] = 0.0;
       p_unpaired_cond_sampled[i][j] = 0.0;
     }
   }
-  
-  
+    
   /*** Get constraints from reference structure or from file constraints.dat ***/
 
   if (fold_constrained){
@@ -291,18 +299,18 @@ int main(int argc, char *argv[]){
   }
 
   setvbuf(statsfile, NULL, _IONBF, 0);
-
+  
   fprintf(statsfile, "Iteration\tDiscrepancy\tNorm\tdfCount\tMEA\n");
 
   if (statsfile == NULL){
     nrerror("Could not open stats.dat for writing.");
   }
-
+  
   fprintf(stderr, "tau^2 = %.4f; sigma^2 = %.4f; precision = %.4f; tolerance = %.4f; step-size: %.4f\n\n", 
           tau, sigma, precision, tolerance, initial_step_size);
-
+  
   st_back=1;
-
+  
   dangles=0;
   
   min_en = fold(string, structure);
@@ -323,18 +331,7 @@ int main(int argc, char *argv[]){
   kT = (temperature+273.15)*1.98717/1000.; /* in Kcal */
   pf_scale = exp(-(sfact*min_en)/kT/length);
 
-
-
-  /*
-  for (i=1; i <= length; i++){
-    if (i%2==0){
-      epsilon[i] = +0.1*i;
-    } else {
-      epsilon[i] = -0.1*i;
-    }
-  }
-  */
-  
+ 
   /* Set up minimizer */
 
   minimizer_x = gsl_vector_alloc (length+1);
@@ -354,17 +351,26 @@ int main(int argc, char *argv[]){
   
   minimizer_func.n = length+1;
   minimizer_func.f = calculate_f;
-  minimizer_func.df = numerically ? calculate_df_numerically: calculate_df;
+  minimizer_func.df = numerical ? calculate_df_numerically: calculate_df;
   minimizer_func.fdf = calculate_fdf;
   minimizer_func.params = &minimizer_pars;
 
- 
-  test_folding(string, length);
-  //test_stochastic_backtracking(string, length);
-  //test_gradient(minimizer_func, minimizer_pars);
-  //test_gradient_sampling(minimizer_func, minimizer_pars);
 
-  exit(1);
+  /* Calling test functions for debugging */
+
+  /* for (i=1; i <= length; i++){ */
+  /*   if (i%2==0){ */
+  /*     epsilon[i] = +0.1*i; */
+  /*   } else { */
+  /*     epsilon[i] = -0.1*i; */
+  /*   } */
+  /* } */
+
+  /* //test_folding(string, length); */
+  /* //test_stochastic_backtracking(string, length); */
+  /* //test_gradient(minimizer_func, minimizer_pars); */
+  /* //test_gradient_sampling(minimizer_func, minimizer_pars); */
+  /* //exit(1); */
 
   count_df_evaluations=0;
 
@@ -415,35 +421,29 @@ int main(int argc, char *argv[]){
     prev_D = -1.0;
 
     do {
-
      
-      fprintf (stderr, "\nITERATION %i:\n", iteration);
-      
       D = minimizer->f;
       norm = gsl_blas_dnrm2(minimizer->gradient);
-      
-      fprintf(stderr, "DISCREPANCY: %.4f\n", D);
-      fprintf(stderr, "NORM OF GRADIENT: %.2f\n", norm);
-      
+
+      fprintf (stderr, "\nITERATION:   %i\n", iteration);
+      fprintf(stderr,  "DISCREPANCY: %.4f\n", D);
+      fprintf(stderr,  "NORM:        %.2f\n", norm);
       if (prev_D > -1.0) {
-        fprintf(stderr, "IMPROVEMENT: %.4f%%\n", (1-(D/prev_D))*100);
+        fprintf(stderr,  "IMPROVEMENT: %.4f%%\n\n", (1-(D/prev_D))*100);
       }
       
-      fprintf(statsfile, "%i\t%.4f\t%.4f\t%i\t", iteration, D, norm, count_df_evaluations);
-      //print_mea_string(statsfile, string, length);
-      fprintf(statsfile, "\n");
-
+      print_stats(statsfile, string, cstruc, length,iteration, count_df_evaluations, D, norm);
+      
       prev_D = D;
-
-      if (!noPS) print_dotplot(string, cstruc, length, iteration, minimizer->f);
 
       status = gsl_multimin_fdfminimizer_iterate (minimizer);
 
       if (status) {
         fprintf(stderr, "An unexpected error has occured in the iteration (status:%i)\n", status);
+        break;
       }
     
-      status = gsl_multimin_test_gradient (minimizer->gradient, 1e-3);
+      status = gsl_multimin_test_gradient (minimizer->gradient, precision);
       if (status == GSL_SUCCESS) printf ("Minimum found stopping.\n");
       
       iteration++;
@@ -476,30 +476,7 @@ int main(int argc, char *argv[]){
     
       D = calculate_f(minimizer_x, (void*)&minimizer_pars);
 
-      if (prev_D > -1.0) {
-        fprintf(stderr, "IMPROVEMENT: %.4f%%\n", (1-(D/prev_D))*100);
-        if ((prev_D-D)/(prev_D+D) < precision){
-          //break;
-        }
-      }
-
-      prev_D = D;
-
-      if (!noPS) print_dotplot(string, cstruc, length, iteration, D);
-
-      norm = calculate_norm(gradient,length);
-    
-      fprintf(stderr, "DISCREPANCY %.4f\n", D);
-      fprintf(stderr, "NORM %.4f\n", norm);
-
-      if (norm<precision && iteration>1) break;
-      //break;
-
-      fprintf(statsfile, "%i\t%.4f\t%.4f\t%i\t", iteration, D, norm, count_df_evaluations);
-      //print_mea_string(statsfile, string, length);
-      fprintf(statsfile, "\n");
-
-      if (numerically){
+      if (numerical){
         calculate_df_numerically(minimizer_x, (void*)&minimizer_pars, minimizer_g);
       } else {
         calculate_df(minimizer_x, (void*)&minimizer_pars, minimizer_g);
@@ -557,7 +534,22 @@ int main(int argc, char *argv[]){
 
         step_size /= 2;
       } while (step_size > 1e-12 && DD > D);
-      
+
+      norm = calculate_norm(gradient,length);
+
+      fprintf (stderr, "\nITERATION:   %i\n", iteration);
+      fprintf(stderr,  "DISCREPANCY: %.4f\n", D);
+      fprintf(stderr,  "NORM:        %.2f\n", norm);
+      if (prev_D > -1.0) {
+        fprintf(stderr,  "IMPROVEMENT: %.4f%%\n\n", (1-(D/prev_D))*100);
+      }
+
+      prev_D = D;
+
+      if (norm<precision && iteration>1) break;
+
+      print_stats(statsfile, string, cstruc, length,iteration, count_df_evaluations, D, norm);
+
       if (DD > D){
         fprintf(stderr, "Line search did not improve D in iteration %i. Stop.\n", iteration);
         break;
@@ -675,16 +667,16 @@ void calculate_df (const gsl_vector *v, void *params, gsl_vector *df){
   int ii,jj,i,j,mu, length, N;
   minimizer_pars_struct *pars = (minimizer_pars_struct *)params;
   char *constraints;
-
+  
   int* unpaired_count;
   int** unpaired_count_cond;
 
   length = pars->length;
 
   count_df_evaluations++;
-
-  fprintf(stderr, "=> Evaluating gradient (analytical)...\n");
-
+  
+  fprintf(stderr, "=> Evaluating gradient (analytical, %s)...\n",sample_conditionals == 1 ? "sampled conditionals" : "exact conditionals");
+  
   constraints = (char *) space((unsigned) length+1);
   for (i=0; i <= length; i++){
     epsilon[i] = gsl_vector_get(v, i);
@@ -738,6 +730,8 @@ void calculate_df (const gsl_vector *v, void *params, gsl_vector *df){
       free_pf_arrays();
     }
 
+    fprintf(stderr, "\n");
+
     fold_constrained = 0;
 
     // Sample gradient with stochastic backtracking
@@ -788,10 +782,8 @@ void calculate_df (const gsl_vector *v, void *params, gsl_vector *df){
           p_unpaired_cond_sampled[i][ii]= 0.0;
           p_unpaired_cond[i][ii]= 0.0;
         }
-        //fprintf(stderr, "%i\t%i\t%i\t%i\t%.5f\t%.5f\n", i, ii, unpaired_count[i], unpaired_count_cond[i][ii], p_unpaired_cond[i][ii], p_unpaired_cond_sampled[i][ii]);
       }
     }
-    //fprintf(stderr, "\n");
   }
 
   // Calculate gradient
@@ -857,7 +849,7 @@ void calculate_df_numerically (const gsl_vector *v, void *params, gsl_vector *df
 void calculate_fdf(const gsl_vector *x, void *params, double *f, gsl_vector *df){
   *f = calculate_f(x, params);
 
-  if (numerically) {
+  if (numerical) {
     calculate_df_numerically(x, params, df);
   } else {
     calculate_df(x, params, df);
@@ -898,39 +890,26 @@ double calculate_norm(double* vector, int length){
 
 }
 
-/* Print dotplot for current iteration */
-void print_dotplot(char* seq, char* struc, int length, int iteration, double D){
 
-  plist *pl1,*pl2;
+/* Prints dotplot and statistics */
+
+void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iteration, int count_df_evaluations, double D, double norm){
+  
+  plist *pl, *pl1,*pl2;
   char fname[100];
   char title[100];
+  char* ss;
+  double MEAgamma, mea, mea_en;
+  char* output;
+
+  ss = (char *) space((unsigned) length+1);
+  memset(ss,'.',length);
 
   init_pf_fold(length);
   pf_fold_pb(seq, NULL);
 
-  sprintf(fname,"iteration%i.ps", iteration);
-  pl1 = make_plist(length, 1e-5);
-  pl2 = b2plist(struc);
-  sprintf(title,"Iteration %i, D = %.4f", iteration, D);
-  (void) PS_dot_plot_list_epsilon(seq, fname, pl2, pl1, epsilon, title);
-  free_arrays(); 
-  
-}
+  fprintf(statsfile, "%i\t%.4f\t%.4f\t%i\t", iteration, D, norm, count_df_evaluations);
 
-
-/* Calculate MEA structures for current iteration */
-
-char* print_mea_string(FILE* statsfile, char* seq, int length){
-
-  double MEAgamma;
-  plist *pl;
-  char* ss;
-  double mea, mea_en;
-  char* output;
-  ss = (char *) space((unsigned) length+1);
-  ss = (char *) space((unsigned) length+1);
-  memset(ss,'.',length);
-  
   for (MEAgamma=1e-5; MEAgamma<1e+6; MEAgamma*=10 ){
     pl = make_plist(length, 1e-4/(1+MEAgamma));
     mea = MEA(pl, ss, MEAgamma);
@@ -938,15 +917,25 @@ char* print_mea_string(FILE* statsfile, char* seq, int length){
     fprintf(statsfile,"%s,%.2e;", ss, MEAgamma);
     free(pl);
   }
+  fprintf(statsfile, "\n");
 
-  return NULL;
+  if (!noPS){
+    /* Print dotplot */
+    sprintf(fname,"%s/iteration%i.ps", psDir, iteration);
+    pl1 = make_plist(length, 1e-5);
+    pl2 = b2plist(struc);
+    sprintf(title,"Iteration %i, D = %.4f", iteration, D);
+    (void) PS_dot_plot_list_epsilon(seq, fname, pl2, pl1, epsilon, title);
+  }
+
+  free_arrays(); 
 
 }
 
 
 /* Testing (conditional) folding; use with eval.pl */
 void test_folding(char* seq, int length){
-
+  
   int i,j;
   char* constraints;
 
@@ -1051,8 +1040,6 @@ void test_gradient(gsl_multimin_function_fdf minimizer_func,  minimizer_pars_str
   }
   
   /* Numerical */
-
-  numeric_d = 0.00001;
 
   for (i=0; i <= length; i++){
     epsilon[i] = 0.0;
