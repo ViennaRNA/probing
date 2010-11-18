@@ -84,6 +84,12 @@ option  "sampleGradient" s
 flag
 off
 
+option  "hybridGradient" -
+"First sample conditional probabilities, when it fails continue with exact gradient. Only works with methods 0 and 1.\n"
+flag
+off
+
+
 option  "numericalGradient" -
 "Calculate gradient by numerical differentiation (mainly for debugging).\n"
 flag

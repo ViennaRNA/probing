@@ -35,7 +35,7 @@ PRIVATE void   calculate_fdf (const gsl_vector *x, void *params, double *f, gsl_
 PRIVATE void get_pair_prob_vector(double** matrix, double* vector, int length, int type); 
 PRIVATE double calculate_norm (double* vector, int length);
 PRIVATE char* print_mea_string(FILE* statsfile, char* seq, int length);
-PRIVATE void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iteration, int count_df_evaluations, double D, double norm);
+PRIVATE void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iteration, int count_df_evaluations, double D, double prev_D, double norm);
 PRIVATE void test_folding(char* seq, int length);
 PRIVATE void test_stochastic_backtracking(char* seq, int length);
 PRIVATE void test_gradient_sampling(gsl_multimin_function_fdf minimizer_func,  minimizer_pars_struct minimizer_pars);
@@ -56,6 +56,7 @@ PRIVATE int count_df_evaluations;
 PRIVATE int  numerical = 0;
 PRIVATE double numeric_d = 0.00001;
 PRIVATE int sample_conditionals = 0;
+PRIVATE int hybrid_conditionals = 0;
 PRIVATE char psDir[1024];
 PRIVATE int noPS;
 
@@ -144,6 +145,7 @@ int main(int argc, char *argv[]){
   if (args_info.tolerance_given) tolerance = args_info.tolerance_arg;
   if (args_info.outfile_given) strcpy(outfile, args_info.outfile_arg);
   if (args_info.sampleGradient_given) sample_conditionals=1;
+  if (args_info.hybridGradient_given) { sample_conditionals=1; hybrid_conditionals=1;}
   if (args_info.numericalGradient_given) numerical=1;
   if (args_info.psDir_given) strcpy(psDir, args_info.psDir_arg);      
   
@@ -374,7 +376,12 @@ int main(int argc, char *argv[]){
 
   count_df_evaluations=0;
 
+  prev_D = calculate_f(minimizer_x, (void*)&minimizer_pars);
+  
+  print_stats(statsfile, string, cstruc, length, 0 , count_df_evaluations , prev_D, -1.0, 0.0);
+
   /* GSL minimization */
+
 
   if (method_id >=2){
     char name[100];
@@ -418,25 +425,16 @@ int main(int argc, char *argv[]){
     gsl_multimin_fdfminimizer_set (minimizer, &minimizer_func, minimizer_x, initial_step_size, tolerance);
     
     iteration = 1;
-    prev_D = -1.0;
 
     do {
      
+      status = gsl_multimin_fdfminimizer_iterate (minimizer);
       D = minimizer->f;
       norm = gsl_blas_dnrm2(minimizer->gradient);
+      
+      print_stats(statsfile, string, cstruc, length,iteration, count_df_evaluations, D, prev_D, norm);
 
-      fprintf (stderr, "\nITERATION:   %i\n", iteration);
-      fprintf(stderr,  "DISCREPANCY: %.4f\n", D);
-      fprintf(stderr,  "NORM:        %.2f\n", norm);
-      if (prev_D > -1.0) {
-        fprintf(stderr,  "IMPROVEMENT: %.4f%%\n\n", (1-(D/prev_D))*100);
-      }
-      
-      print_stats(statsfile, string, cstruc, length,iteration, count_df_evaluations, D, norm);
-      
       prev_D = D;
-
-      status = gsl_multimin_fdfminimizer_iterate (minimizer);
 
       if (status) {
         fprintf(stderr, "An unexpected error has occured in the iteration (status:%i)\n", status);
@@ -444,7 +442,7 @@ int main(int argc, char *argv[]){
       }
     
       status = gsl_multimin_test_gradient (minimizer->gradient, precision);
-      if (status == GSL_SUCCESS) printf ("Minimum found stopping.\n");
+      if (status == GSL_SUCCESS) fprintf(stderr, "Minimum found stopping.\n");
       
       iteration++;
      
@@ -464,11 +462,8 @@ int main(int argc, char *argv[]){
 
     iteration = 0;
     D = 0.0;
-    prev_D = -1.0;
 
     while (iteration++ < max_iteration){
-    
-      fprintf(stderr, "\nITERATION %i\n", iteration);
     
       for (i=1; i <= length; i++){
         gsl_vector_set (minimizer_x, i, epsilon[i]);
@@ -537,25 +532,25 @@ int main(int argc, char *argv[]){
 
       norm = calculate_norm(gradient,length);
 
-      fprintf (stderr, "\nITERATION:   %i\n", iteration);
-      fprintf(stderr,  "DISCREPANCY: %.4f\n", D);
-      fprintf(stderr,  "NORM:        %.2f\n", norm);
-      if (prev_D > -1.0) {
-        fprintf(stderr,  "IMPROVEMENT: %.4f%%\n\n", (1-(D/prev_D))*100);
-      }
-
-      prev_D = D;
-
-      if (norm<precision && iteration>1) break;
-
-      print_stats(statsfile, string, cstruc, length,iteration, count_df_evaluations, D, norm);
-
       if (DD > D){
         fprintf(stderr, "Line search did not improve D in iteration %i. Stop.\n", iteration);
-        break;
+
+        if (hybrid_conditionals){
+          sample_conditionals=0;
+        } else {
+          break;
+        }
       }
       
-      fprintf(stderr, "\n");
+      print_stats(statsfile, string, cstruc, length,iteration, count_df_evaluations, DD, prev_D, norm);
+      
+      if (norm<precision && iteration>1) {
+        fprintf(stderr, "Minimum found stopping.\n");
+        break;
+      }
+
+      prev_D = DD;
+
     }
   }
 
@@ -893,7 +888,7 @@ double calculate_norm(double* vector, int length){
 
 /* Prints dotplot and statistics */
 
-void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iteration, int count_df_evaluations, double D, double norm){
+void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iteration, int count_df_evaluations, double D, double prev_D, double norm){
   
   plist *pl, *pl1,*pl2;
   char fname[100];
@@ -907,6 +902,13 @@ void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iterat
 
   init_pf_fold(length);
   pf_fold_pb(seq, NULL);
+
+  fprintf (stderr, "\nITERATION:   %i\n", iteration);
+  fprintf(stderr,  "DISCREPANCY: %.4f\n", D);
+  fprintf(stderr,  "NORM:        %.2f\n", norm);
+  if (prev_D > -1.0) {
+    fprintf(stderr,  "IMPROVEMENT: %.4f%%\n\n", (1-(D/prev_D))*100);
+  }
 
   fprintf(statsfile, "%i\t%.4f\t%.4f\t%i\t", iteration, D, norm, count_df_evaluations);
 
