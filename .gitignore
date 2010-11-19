@@ -24,6 +24,7 @@ config.guess
 config.sub
 doc/
 man/RNAlib.info
+man/*.1
 man/texinfo.tex
 
 

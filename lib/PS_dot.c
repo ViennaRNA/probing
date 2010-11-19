@@ -1156,7 +1156,7 @@ static FILE * PS_dot_common(char *seq, char *wastlfile,
 			    char *comment, int winsize) {
   /* write PS header etc for all dot plot variants */
   FILE *wastl;
-  char name[31], *c;
+  char *c;
   int i, length;
 
   length= strlen(seq);
@@ -1166,8 +1166,8 @@ static FILE * PS_dot_common(char *seq, char *wastlfile,
     return NULL; /* return 0 for failure */
   }
 
-  strncpy(name, wastlfile, 30);
-  if ((c=strrchr(name, '_'))!=0) *c='\0';
+  //strncpy(name, wastlfile, 30);
+  //if ((c=strrchr(name, '_'))!=0) *c='\0';
 
   fprintf(wastl,
 	  "%%!PS-Adobe-3.0 EPSF-3.0\n"
