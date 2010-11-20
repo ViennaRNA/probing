@@ -92,7 +92,7 @@ int main(int argc, char *argv[]){
   double D;                  /* Discrepancy (i.e. value of objective
                                 function) for the current
                                 prediction */
-  int iteration, max_iteration = 500; /* Current and maximum number of
+  int iteration, max_iteration = 1500; /* Current and maximum number of
                                          iterations after which
                                          algorithm stops */
 
