@@ -60,24 +60,36 @@ optional
 option  "maxN" - 
 "Maximum number of iterations"
 int
-default="200"
+default="2000"
 argoptional
 optional
 
-option  "method" - 
+option  "minimization" - 
 "Method used for minimization:\n\n\
-0 ... Gradient descent\n\
-1 ... Gradient desc. (Barzilai & Borwein steps)\n\n\
+0 ... No minimization\n\
+1 ... Gradient descent\n\
+2 ... Gradient desc. (Barzilai & Borwein steps)\n\n\
 GSL algorithms:\n\
-2 ... Fletcher-Reeves conjugate gradient\n\
-3 ... Polak-Ribiere conjugate gradient\n\
-4 ... Broyden-Fletcher-Goldfarb-Shanno\n\
-5 ... Broyden-Fletcher-Goldfarb-Shanno improved\n\
-6 ... Gradient descent (GSL implmementation)"
+3 ... Fletcher-Reeves conjugate gradient\n\
+4 ... Polak-Ribiere conjugate gradient\n\
+5 ... Broyden-Fletcher-Goldfarb-Shanno\n\
+6 ... Broyden-Fletcher-Goldfarb-Shanno improved\n\
+7 ... Gradient descent (GSL implmementation)"
+int
+default="1"
+argoptional
+optional
+
+option  "init" - 
+"Initial guess for epsilon:\n\n\
+0 ... Null vector\n\
+1 ... proportional to q"
 int
 default="0"
 argoptional
 optional
+
+
 
 option  "sampleGradient" s
 "Sample conditional probabilities required to calculate the gradient by sampling via stochastic backtracking.\n"
@@ -116,6 +128,13 @@ pair probability matrix and perturbation vector is written to a Postscript\
 formatted file iteration1.ps, iteration2.ps, ..., iteration3.ps\n" 
 flag
 off
+
+option  "sparsePS" - 
+"Only output every Nth dotplot (alwasy show first and last)"
+int
+default="1"
+argoptional
+optional
 
 option  "psDir" -
 "Directory to which write postscript files. Default: dotplots\n"

@@ -35,7 +35,7 @@ PRIVATE void   calculate_fdf (const gsl_vector *x, void *params, double *f, gsl_
 PRIVATE void get_pair_prob_vector(double** matrix, double* vector, int length, int type); 
 PRIVATE double calculate_norm (double* vector, int length);
 PRIVATE char* print_mea_string(FILE* statsfile, char* seq, int length);
-PRIVATE void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iteration, int count_df_evaluations, double D, double prev_D, double norm);
+PRIVATE void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iteration, int count_df_evaluations, double D, double prev_D, double norm, int printPS);
 PRIVATE void test_folding(char* seq, int length);
 PRIVATE void test_stochastic_backtracking(char* seq, int length);
 PRIVATE void test_gradient_sampling(gsl_multimin_function_fdf minimizer_func,  minimizer_pars_struct minimizer_pars);
@@ -59,6 +59,7 @@ PRIVATE int sample_conditionals = 0;
 PRIVATE int hybrid_conditionals = 0;
 PRIVATE char psDir[1024];
 PRIVATE int noPS;
+PRIVATE int sparsePS=1;
 
 int debug=0;
 
@@ -92,15 +93,17 @@ int main(int argc, char *argv[]){
   double D;                  /* Discrepancy (i.e. value of objective
                                 function) for the current
                                 prediction */
-  int iteration, max_iteration = 1500; /* Current and maximum number of
+  int iteration, max_iteration = 2000; /* Current and maximum number of
                                          iterations after which
                                          algorithm stops */
 
   double precision = 0.1; /* cutoff used for stop conditions */
   double tolerance = 0.1;   /* Parameter used by various GSL minimizers */
-  int method_id = 0;        /* Method to use for minimization, 0 and 1
+  int method_id = 1;        /* Method to use for minimization, 0 and 1
                                are custom steepest descent, the rest
                                are GSL implementations (see below)*/
+
+  int initial_guess_method = 0; 
 
   int sample_N = 1000;
 
@@ -110,7 +113,6 @@ int main(int argc, char *argv[]){
   int status;
   double* gradient_numeric;
   double* gradient_numeric_gsl;
-
 
   /* Minimizer vars */
   const gsl_multimin_fdfminimizer_type *T;
@@ -141,13 +143,15 @@ int main(int argc, char *argv[]){
   if (args_info.precision_given) precision = args_info.precision_arg;
   if (args_info.step_given) initial_step_size = args_info.step_arg;
   if (args_info.maxN_given) max_iteration = args_info.maxN_arg;
-  if (args_info.method_given) method_id = args_info.method_arg;
+  if (args_info.minimization_given) method_id = args_info.minimization_arg;
+  if (args_info.init_given) initial_guess_method = args_info.init_arg;
   if (args_info.tolerance_given) tolerance = args_info.tolerance_arg;
   if (args_info.outfile_given) strcpy(outfile, args_info.outfile_arg);
   if (args_info.sampleGradient_given) sample_conditionals=1;
   if (args_info.hybridGradient_given) { sample_conditionals=1; hybrid_conditionals=1;}
   if (args_info.numericalGradient_given) numerical=1;
   if (args_info.psDir_given) strcpy(psDir, args_info.psDir_arg);      
+  if (args_info.sparsePS_given) sparsePS=args_info.sparsePS_arg;
   
   /* Generic RNAfold options */
   
@@ -234,6 +238,7 @@ int main(int argc, char *argv[]){
   /* Allocating space */
   
   epsilon =     (double *) space(sizeof(double)*(length+1));
+
   exp_pert =  (double **)space(sizeof(double *)*(length+1));
   prev_epsilon = (double *) space(sizeof(double)*(length+1));
   gradient =    (double *) space(sizeof(double)*(length+1));
@@ -302,7 +307,7 @@ int main(int argc, char *argv[]){
 
   setvbuf(statsfile, NULL, _IONBF, 0);
   
-  fprintf(statsfile, "Iteration\tDiscrepancy\tNorm\tdfCount\tMEA\n");
+  fprintf(statsfile, "Iteration\tDiscrepancy\tNorm\tdfCount\tMEA\tepsilon\n");
 
   if (statsfile == NULL){
     nrerror("Could not open stats.dat for writing.");
@@ -376,182 +381,251 @@ int main(int argc, char *argv[]){
 
   count_df_evaluations=0;
 
+  /* Initial guess for epsilon */
+
+  if (initial_guess_method !=0){
+
+    /* Vars for inital guess methods */
+    double m,b;
+    double* curr_epsilon;
+    double* best_epsilon;
+    double best_m, best_b;
+    double curr_D;
+    double min_D = 999999999.0;
+
+    if (initial_guess_method == 1) fprintf(stderr, "Mathew's constant perturbations\n");
+    if (initial_guess_method == 1) fprintf(stderr, "Perturbations proportional to q-p\n");
+   
+    curr_epsilon = (double *) space(sizeof(double)*(length+1));
+    best_epsilon = (double *) space(sizeof(double)*(length+1));
+
+    for (m=0.0; m>-5.0; m-=0.5){
+      for (b=0.0; b<3.0; b+=0.5){
+
+        /* Mathew's constant perturbations */
+        if (initial_guess_method == 1){
+          for (i=0; i <= length; i++){
+            curr_epsilon[i] = m *(log(q_unpaired[i]+1))+b;
+            gsl_vector_set (minimizer_x, i, curr_epsilon[i]);
+          }
+        /* Perturbations proportional to q-p */
+        } else {
+          init_pf_fold(length);
+          pf_fold_pb(string, NULL);
+          for (i = 1; i < length; i++){
+            for (j = i+1; j<= length; j++) {
+              p_pp[i][j]=p_pp[j][i]=pr[iindx[i]-j];
+            }
+          }
+          get_pair_prob_vector(p_pp, p_unpaired, length, 1); 
+          free_pf_arrays();
+
+          for (i=0; i <= length; i++){
+            curr_epsilon[i] = m *(log(q_unpaired[i]+1)-log(p_unpaired[i]+1))+b;
+            gsl_vector_set (minimizer_x, i, curr_epsilon[i]);
+          }
+        }
+
+        curr_D = calculate_f(minimizer_x, (void*)&minimizer_pars);
+        if (curr_D < min_D){
+          min_D = curr_D;
+          for (i=0; i <= length; i++){
+            best_epsilon[i] = curr_epsilon[i];
+          }
+          best_m = m;
+          best_b = b;
+        }
+        fprintf(stderr, "%.2f, %.2f: %.2f %.2f\n", m, b, curr_D, min_D);
+      }
+    }
+    fprintf(stderr, "Minimum found: %.2f, %.2f: %.2f\n", best_m, best_b, min_D);
+    for (i=0; i <= length; i++){
+      epsilon[i] = best_epsilon[i];
+      gsl_vector_set (minimizer_x, i, best_epsilon[i]);
+    }
+  }
+
   prev_D = calculate_f(minimizer_x, (void*)&minimizer_pars);
   
-  print_stats(statsfile, string, cstruc, length, 0 , count_df_evaluations , prev_D, -1.0, 0.0);
+  print_stats(statsfile, string, cstruc, length, 0 , count_df_evaluations , prev_D, -1.0, 0.0,1);
 
   /* GSL minimization */
+  
+  if (method_id !=0){
 
-
-  if (method_id >=2){
-    char name[100];
-    // Available algorithms 
-    //  2  gsl_multimin_fdfminimizer_conjugate_fr
-    //  3  gsl_multimin_fdfminimizer_conjugate_pr
-    //  4  gsl_multimin_fdfminimizer_vector_bfgs
-    //  5  gsl_multimin_fdfminimizer_vector_bfgs2
-    //  6  gsl_multimin_fdfminimizer_steepest_descent
+    if (method_id > 2){
+      char name[100];
+      // Available algorithms 
+      //  3  gsl_multimin_fdfminimizer_conjugate_fr
+      //  4  gsl_multimin_fdfminimizer_conjugate_pr
+      //  5  gsl_multimin_fdfminimizer_vector_bfgs
+      //  6  gsl_multimin_fdfminimizer_vector_bfgs2
+      //  7  gsl_multimin_fdfminimizer_steepest_descent
     
-    //   http://www.gnu.org/software/gsl/manual/html_node/Multimin-Algorithms-with-Derivatives.html
+      //   http://www.gnu.org/software/gsl/manual/html_node/Multimin-Algorithms-with-Derivatives.html
 
-    switch (method_id){
-    case 2: 
-      minimizer = gsl_multimin_fdfminimizer_alloc (gsl_multimin_fdfminimizer_conjugate_fr, length+1); 
-      strcpy(name, "Fletcher-Reeves conjugate gradient");
-      break;
-    case 3: 
-      minimizer = gsl_multimin_fdfminimizer_alloc (gsl_multimin_fdfminimizer_conjugate_pr, length+1); 
-      strcpy(name, "Polak-Ribiere conjugate gradient");
-      break;
-    case 4: 
-      minimizer = gsl_multimin_fdfminimizer_alloc ( gsl_multimin_fdfminimizer_vector_bfgs, length+1); 
-      strcpy(name, "Broyden-Fletcher-Goldfarb-Shanno");
-      break;
-    case 5: 
-      minimizer = gsl_multimin_fdfminimizer_alloc ( gsl_multimin_fdfminimizer_vector_bfgs2, length+1); 
-      strcpy(name, "Broyden-Fletcher-Goldfarb-Shanno (improved version)");
-      break;
-    case 6: 
-      minimizer = gsl_multimin_fdfminimizer_alloc (gsl_multimin_fdfminimizer_steepest_descent, length+1); 
-      strcpy(name, "Gradient descent (GSL implmementation)");
-      break;
-    }
-
-    fprintf(stderr, "Starting minimization via GSL implementation of %s...\n\n", name);
-    
-    // The last two parmeters are step size and tolerance (with
-    // different meaning for different algorithms 
-
-    gsl_multimin_fdfminimizer_set (minimizer, &minimizer_func, minimizer_x, initial_step_size, tolerance);
-    
-    iteration = 1;
-
-    do {
-     
-      status = gsl_multimin_fdfminimizer_iterate (minimizer);
-      D = minimizer->f;
-      norm = gsl_blas_dnrm2(minimizer->gradient);
-      
-      print_stats(statsfile, string, cstruc, length,iteration, count_df_evaluations, D, prev_D, norm);
-
-      prev_D = D;
-
-      if (status) {
-        fprintf(stderr, "An unexpected error has occured in the iteration (status:%i)\n", status);
+      switch (method_id){
+      case 2: 
+        minimizer = gsl_multimin_fdfminimizer_alloc (gsl_multimin_fdfminimizer_conjugate_fr, length+1); 
+        strcpy(name, "Fletcher-Reeves conjugate gradient");
+        break;
+      case 3: 
+        minimizer = gsl_multimin_fdfminimizer_alloc (gsl_multimin_fdfminimizer_conjugate_pr, length+1); 
+        strcpy(name, "Polak-Ribiere conjugate gradient");
+        break;
+      case 4: 
+        minimizer = gsl_multimin_fdfminimizer_alloc ( gsl_multimin_fdfminimizer_vector_bfgs, length+1); 
+        strcpy(name, "Broyden-Fletcher-Goldfarb-Shanno");
+        break;
+      case 5: 
+        minimizer = gsl_multimin_fdfminimizer_alloc ( gsl_multimin_fdfminimizer_vector_bfgs2, length+1); 
+        strcpy(name, "Broyden-Fletcher-Goldfarb-Shanno (improved version)");
+        break;
+      case 6: 
+        minimizer = gsl_multimin_fdfminimizer_alloc (gsl_multimin_fdfminimizer_steepest_descent, length+1); 
+        strcpy(name, "Gradient descent (GSL implmementation)");
         break;
       }
+
+      fprintf(stderr, "Starting minimization via GSL implementation of %s...\n\n", name);
     
-      status = gsl_multimin_test_gradient (minimizer->gradient, precision);
-      if (status == GSL_SUCCESS) fprintf(stderr, "Minimum found stopping.\n");
-      
-      iteration++;
-     
-    } while (status == GSL_CONTINUE && iteration < max_iteration);
+      // The last two parmeters are step size and tolerance (with
+      // different meaning for different algorithms 
 
-    gsl_multimin_fdfminimizer_free (minimizer);
-    gsl_vector_free (minimizer_x);
-
-    /* Custom implementation of steepest descent */
-  } else {
-
-    if (method_id == 0){
-      fprintf(stderr, "Starting custom implemented steepest descent search...\n\n");
-    } else {
-      fprintf(stderr, "Starting custom implemented steepest descent search with Barzilai Borwein step size...\n\n");
-    }
-
-    iteration = 0;
-    D = 0.0;
-
-    while (iteration++ < max_iteration){
+      gsl_multimin_fdfminimizer_set (minimizer, &minimizer_func, minimizer_x, initial_step_size, tolerance);
     
-      for (i=1; i <= length; i++){
-        gsl_vector_set (minimizer_x, i, epsilon[i]);
-      }
-    
-      D = calculate_f(minimizer_x, (void*)&minimizer_pars);
-
-      if (numerical){
-        calculate_df_numerically(minimizer_x, (void*)&minimizer_pars, minimizer_g);
-      } else {
-        calculate_df(minimizer_x, (void*)&minimizer_pars, minimizer_g);
-      }
-
-      for (i=1; i <= length; i++){
-        gradient[i] = gsl_vector_get (minimizer_g, i);
-      }
-   
-      // Do line search
-
-      fprintf(stderr, "\nLine search:\n");
-
-      // After the first iteration, use Barzilai-Borwain (1988) step size (currently turned off)
-      if (iteration>1 && method_id==2){
-      
-        double denominator=0.0;
-        double numerator=0.0; 
-      
-        for (i=1; i <= length; i++){
-          numerator += (epsilon[i]-prev_epsilon[i]) * (gradient[i]-prev_gradient[i]);
-          denominator+=(gradient[i]-prev_gradient[i]) * (gradient[i]-prev_gradient[i]);
-        }
-        
-        step_size = numerator / denominator;
-    
-        norm =1.0;
-      } else {
-        // Use step sized given by the user (normalize it first)
-        step_size = initial_step_size / calculate_norm(gradient, length);
-      }
-      
-      for (i=1; i <= length; i++){
-        prev_epsilon[i] = epsilon[i];
-        prev_gradient[i] = gradient[i];
-      }
+      iteration = 1;
 
       do {
+     
+        status = gsl_multimin_fdfminimizer_iterate (minimizer);
+        D = minimizer->f;
+        norm = gsl_blas_dnrm2(minimizer->gradient);
       
-        for (mu=1; mu <= length; mu++){
-          epsilon[mu] = prev_epsilon[mu] - step_size * gradient[mu];
-        }
+        print_stats(statsfile, string, cstruc, length,iteration, count_df_evaluations, D, prev_D, norm, iteration%sparsePS == 0);
 
+        prev_D = D;
+
+        if (status) {
+          fprintf(stderr, "An unexpected error has occured in the iteration (status:%i)\n", status);
+          break;
+        }
+    
+        status = gsl_multimin_test_gradient (minimizer->gradient, precision);
+        if (status == GSL_SUCCESS) fprintf(stderr, "Minimum found stopping.\n");
+      
+        iteration++;
+     
+      } while (status == GSL_CONTINUE && iteration < max_iteration);
+
+      gsl_multimin_fdfminimizer_free (minimizer);
+      gsl_vector_free (minimizer_x);
+
+      /* Custom implementation of steepest descent */
+    } else {
+
+      if (method_id == 1){
+        fprintf(stderr, "Starting custom implemented steepest descent search...\n\n");
+      } else {
+        fprintf(stderr, "Starting custom implemented steepest descent search with Barzilai Borwein step size...\n\n");
+      }
+
+      iteration = 0;
+      D = 0.0;
+
+      while (iteration++ < max_iteration){
+    
         for (i=1; i <= length; i++){
           gsl_vector_set (minimizer_x, i, epsilon[i]);
         }
-      
-        DD = calculate_f(minimizer_x, (void*)&minimizer_pars);
+    
+        D = calculate_f(minimizer_x, (void*)&minimizer_pars);
 
-        if (step_size > 0.0001){
-          fprintf(stderr, "Old D: %.4f; New D: %.4f; Step size: %.4f\n", D, DD, step_size);
+        if (numerical){
+          calculate_df_numerically(minimizer_x, (void*)&minimizer_pars, minimizer_g);
         } else {
-          fprintf(stderr, "Old D: %.4f; New D: %.4f; Step size: %.4e\n", D, DD, step_size);
+          calculate_df(minimizer_x, (void*)&minimizer_pars, minimizer_g);
         }
 
-        step_size /= 2;
-      } while (step_size > 1e-12 && DD > D);
+        for (i=1; i <= length; i++){
+          gradient[i] = gsl_vector_get (minimizer_g, i);
+        }
+   
+        // Do line search
 
-      norm = calculate_norm(gradient,length);
+        fprintf(stderr, "\nLine search:\n");
 
-      if (DD > D){
-        fprintf(stderr, "Line search did not improve D in iteration %i. Stop.\n", iteration);
-
-        if (hybrid_conditionals){
-          sample_conditionals=0;
+        // After the first iteration, use Barzilai-Borwain (1988) step size (currently turned off)
+        if (iteration>1 && method_id==2){
+      
+          double denominator=0.0;
+          double numerator=0.0; 
+      
+          for (i=1; i <= length; i++){
+            numerator += (epsilon[i]-prev_epsilon[i]) * (gradient[i]-prev_gradient[i]);
+            denominator+=(gradient[i]-prev_gradient[i]) * (gradient[i]-prev_gradient[i]);
+          }
+        
+          step_size = numerator / denominator;
+    
+          norm =1.0;
         } else {
+          // Use step sized given by the user (normalize it first)
+          step_size = initial_step_size / calculate_norm(gradient, length);
+        }
+      
+        for (i=1; i <= length; i++){
+          prev_epsilon[i] = epsilon[i];
+          prev_gradient[i] = gradient[i];
+        }
+
+        do {
+          
+          for (mu=1; mu <= length; mu++){
+            epsilon[mu] = prev_epsilon[mu] - step_size * gradient[mu];
+          }
+          
+          for (i=1; i <= length; i++){
+            gsl_vector_set (minimizer_x, i, epsilon[i]);
+          }
+      
+          DD = calculate_f(minimizer_x, (void*)&minimizer_pars);
+
+          if (step_size > 0.0001){
+            fprintf(stderr, "Old D: %.4f; New D: %.4f; Step size: %.4f\n", D, DD, step_size);
+          } else {
+            fprintf(stderr, "Old D: %.4f; New D: %.4f; Step size: %.4e\n", D, DD, step_size);
+          }
+
+          step_size /= 2;
+        } while (step_size > 1e-12 && DD > D);
+        
+        norm = calculate_norm(gradient,length);
+
+        if (DD > D){
+          fprintf(stderr, "Line search did not improve D in iteration %i. Stop.\n", iteration);
+
+          if (hybrid_conditionals){
+            sample_conditionals=0;
+          } else {
+            break;
+          }
+        }
+        
+        print_stats(statsfile, string, cstruc, length,iteration, count_df_evaluations, DD, prev_D, norm, iteration%sparsePS == 0);
+      
+        if (norm<precision && iteration>1) {
+          fprintf(stderr, "Minimum found stopping.\n");
           break;
         }
-      }
-      
-      print_stats(statsfile, string, cstruc, length,iteration, count_df_evaluations, DD, prev_D, norm);
-      
-      if (norm<precision && iteration>1) {
-        fprintf(stderr, "Minimum found stopping.\n");
-        break;
-      }
 
-      prev_D = DD;
+        prev_D = DD;
 
+      }
     }
+    
+    /* Force last dotplot to be printed */
+    print_stats(statsfile, string, cstruc, length,iteration, count_df_evaluations, DD, prev_D, norm, 1);
   }
 
   free(pf_struc);
@@ -888,7 +962,7 @@ double calculate_norm(double* vector, int length){
 
 /* Prints dotplot and statistics */
 
-void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iteration, int count_df_evaluations, double D, double prev_D, double norm){
+void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iteration, int count_df_evaluations, double D, double prev_D, double norm, int printPS){
   
   plist *pl, *pl1,*pl2;
   char fname[100];
@@ -896,12 +970,20 @@ void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iterat
   char* ss;
   double MEAgamma, mea, mea_en;
   char* output;
+  int i,j;
 
   ss = (char *) space((unsigned) length+1);
   memset(ss,'.',length);
 
   init_pf_fold(length);
   pf_fold_pb(seq, NULL);
+
+  for (i = 1; i < length; i++){
+    for (j = i+1; j<= length; j++) {
+      p_pp[i][j]=p_pp[j][i]=pr[iindx[i]-j];
+    }
+  }
+  get_pair_prob_vector(p_pp, p_unpaired, length, 1); 
 
   fprintf (stderr, "\nITERATION:   %i\n", iteration);
   fprintf(stderr,  "DISCREPANCY: %.4f\n", D);
@@ -919,9 +1001,21 @@ void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iterat
     fprintf(statsfile,"%s,%.2e;", ss, MEAgamma);
     free(pl);
   }
+
+  fprintf(statsfile, "\t");
+
+  for (i = 1; i <= length; i++){
+    fprintf(statsfile, "%.4f", epsilon[i]);
+    if (!(i==length)){
+      fprintf(statsfile, ",");
+    }
+  }
+ 
   fprintf(statsfile, "\n");
 
-  if (!noPS){
+  /* Print dotplot only if not noPS is given and function call asks for it */
+  if (!noPS && printPS){
+
     /* Print dotplot */
     sprintf(fname,"%s/iteration%i.ps", psDir, iteration);
     pl1 = make_plist(length, 1e-5);
@@ -1108,7 +1202,6 @@ void test_gradient_sampling(gsl_multimin_function_fdf minimizer_func,  minimizer
     gradient_sampled[i]= gsl_vector_get(minimizer_g, i);
     printf("%i\t%.4f\t%.4f\t%.6f\n", i, gradient_analytic[i], gradient_sampled[i], gradient_analytic[i]-gradient_sampled[i]);
   }
-
 }
 
 
