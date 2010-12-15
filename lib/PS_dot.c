@@ -1003,12 +1003,15 @@ PUBLIC int PS_dot_plot_list_epsilon(char *seq, char *wastlfile,
 
   fprintf(wastl,"%%data starts here\n");
   /* print boxes in upper right half*/
-  for (pl1=pl; pl1->i>0; pl1++) {
-    tmp = sqrt(pl1->p);
-    fprintf(wastl,"%d %d %1.9f ubox\n", pl1->i, pl1->j, tmp);
+  if (pl != NULL){
+    for (pl1=pl; pl1->i>0; pl1++) {
+      tmp = sqrt(pl1->p);
+      fprintf(wastl,"%d %d %1.9f ubox\n", pl1->i, pl1->j, tmp);
+    }
   }
 
   /* print boxes in lower left half (mfe) */
+
   for (pl1=mf; pl1->i>0; pl1++) {
     tmp = sqrt(pl1->p);
     fprintf(wastl,"%d %d %1.7f lbox\n", pl1->i, pl1->j, tmp);

@@ -124,6 +124,7 @@ int main(int argc, char *argv[]){
 
   char *constraints;
   char outfile[256];
+  char constraints_file[256];
   FILE* fh;
 
  
@@ -147,6 +148,7 @@ int main(int argc, char *argv[]){
   if (args_info.init_given) initial_guess_method = args_info.init_arg;
   if (args_info.tolerance_given) tolerance = args_info.tolerance_arg;
   if (args_info.outfile_given) strcpy(outfile, args_info.outfile_arg);
+  if (args_info.constraints_given) strcpy(constraints_file, args_info.constraints_arg);
   if (args_info.sampleGradient_given) sample_conditionals=1;
   if (args_info.hybridGradient_given) { sample_conditionals=1; hybrid_conditionals=1;}
   if (args_info.numericalGradient_given) numerical=1;
@@ -156,7 +158,7 @@ int main(int argc, char *argv[]){
   /* Generic RNAfold options */
   
   if (args_info.temp_given)        temperature = args_info.temp_arg;
-  if (args_info.constraint_given)  fold_constrained=1;
+  if (args_info.reference_given)  fold_constrained=1;
   if (args_info.noTetra_given)     tetra_loop=0;
   if (args_info.dangles_given)     dangles = args_info.dangles_arg;
   if (args_info.noLP_given)        noLonelyPairs = 1;
@@ -276,10 +278,10 @@ int main(int argc, char *argv[]){
     }
   } else {
 
-    filehandle = fopen ("constraints.dat","r");
+    filehandle = fopen (constraints_file,"r");
 
     if (filehandle == NULL){
-      nrerror("No constraints given as dot bracket or in constraints.dat");
+      nrerror("No constraints given as dot bracket or wrong file name");
     }
     
     i=1;
@@ -394,7 +396,7 @@ int main(int argc, char *argv[]){
     double min_D = 999999999.0;
 
     if (initial_guess_method == 1) fprintf(stderr, "Mathew's constant perturbations\n");
-    if (initial_guess_method == 1) fprintf(stderr, "Perturbations proportional to q-p\n");
+    if (initial_guess_method == 2) fprintf(stderr, "Perturbations proportional to q-p\n");
    
     curr_epsilon = (double *) space(sizeof(double)*(length+1));
     best_epsilon = (double *) space(sizeof(double)*(length+1));
@@ -1019,7 +1021,12 @@ void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iterat
     /* Print dotplot */
     sprintf(fname,"%s/iteration%i.ps", psDir, iteration);
     pl1 = make_plist(length, 1e-5);
-    pl2 = b2plist(struc);
+
+    if (struc != NULL){
+      pl2 = b2plist(struc);
+    } else {
+      pl2 = NULL;
+    }
     sprintf(title,"Iteration %i, D = %.4f", iteration, D);
     (void) PS_dot_plot_list_epsilon(seq, fname, pl2, pl1, epsilon, title);
   }

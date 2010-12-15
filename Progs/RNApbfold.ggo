@@ -90,7 +90,6 @@ argoptional
 optional
 
 
-
 option  "sampleGradient" s
 "Sample conditional probabilities required to calculate the gradient by sampling via stochastic backtracking.\n"
 flag
@@ -116,10 +115,16 @@ argoptional
 optional
 
 
-option  "constraint"  C
+option  "reference" c
 "Use reference structure given in input file as dot-bracket string to calculate constraints (for testing).\n"
 flag
 off
+
+
+option  "constraints" C
+"Constraints file"
+string
+optional
 
 
 option  "noPS" - 
