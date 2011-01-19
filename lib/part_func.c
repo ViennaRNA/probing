@@ -75,6 +75,13 @@ static char rcsid[] UNUSED = "$Id: part_func.c,v 1.29 2008/02/23 10:10:49 ivo Ex
 
 #define ISOLATED  256.0
 
+// We use NAN later to catch under/overflow and signal them to calling
+//functions. NAN does not seem to be defined everywhere in math.h so we do that
+#ifndef NAN
+#define NAN (0.0/0.0)
+#endif
+
+
 /*
 #################################
 # GLOBAL VARIABLES              #
