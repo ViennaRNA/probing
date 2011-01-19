@@ -72,6 +72,12 @@ PUBLIC int pf_underflow;
 
 int debug=0;
 
+// We use NAN later to catch under/overflow and signal them to calling
+//functions. NAN does not seem to be defined everywhere in math.h so we do that
+#ifndef NAN
+#define NAN (0.0/0.0)
+#endif
+
 
 int main(int argc, char *argv[]){
 
