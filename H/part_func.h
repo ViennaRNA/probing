@@ -20,6 +20,8 @@
 float   pf_fold(const char *sequence, char *structure);
 float  pf_fold_pb(const char *sequence, char *structure);
 float   pf_circ_fold(const char *sequence, char *structure);
+
+
 /* calculate partition function and base pair probabilities */
 void    init_pf_fold(int length);    /* allocate space for pf_fold() */
 void    free_pf_arrays(void);        /* free arrays from pf_fold() */

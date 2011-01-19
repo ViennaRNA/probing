@@ -84,6 +84,11 @@ PUBLIC  int     st_back=0;
 PUBLIC  double *epsilon;
 PUBLIC  double **exp_pert;
 
+PUBLIC double last_lnQ;
+PUBLIC int pf_overflow;
+PUBLIC int pf_underflow;
+
+
 /*
 #################################
 # PRIVATE VARIABLES             #
@@ -116,8 +121,6 @@ PRIVATE void  make_ptypes(const short *S, const char *structure);
 PRIVATE void  pf_circ(const char *sequence, char *structure);
 PRIVATE void  pf_linear(const char *sequence, char *structure);
 PRIVATE void  pf_linear_pb(const char *sequence, char *structure);
-PRIVATE double exp_perturbation(int i, int j, pf_paramT *P);
-PRIVATE void update_exp_perturbation(int length);
 PRIVATE void  pf_create_bppm(const char *sequence, char *structure);
 PRIVATE void  pf_create_bppm_pb(const char *sequence, char *structure);
 PRIVATE void  backtrack(int i, int j);
@@ -127,6 +130,10 @@ PRIVATE void  backtrack_qm2(int u, int n);
 PRIVATE void  backtrack_pb(int i, int j);
 PRIVATE void  backtrack_qm_pb(int i, int j);
 PRIVATE void  backtrack_qm1_pb(int i,int j);
+
+PRIVATE double exp_perturbation(int i, int j, pf_paramT *P);
+PRIVATE void update_exp_perturbation(int length);
+
 
 
 /*
@@ -142,6 +149,7 @@ PUBLIC float pf_fold(const char *sequence, char *structure)
   FLT_OR_DBL  Q;
   double      free_energy;
   int         n = (int) strlen(sequence);
+
 
   //fprintf(stderr, "dangles: %d\n", dangles);
 
@@ -181,12 +189,26 @@ PUBLIC float pf_fold_pb(const char *sequence, char *structure){
   /* do the linear pf fold and fill all matrices  */
   pf_linear_pb(sequence, structure);
 
+  if (pf_overflow) return NAN;
+
   if (backtrack_type=='C')      Q = qb[iindx[1]-n];
   else if (backtrack_type=='M') Q = qm[iindx[1]-n];
   else Q = q[iindx[1]-n];
 
+
   /* ensemble free energy in Kcal/mol              */
-  if (Q<=FLT_MIN) fprintf(stderr, "pf_scale too large\n");
+  if (Q<=FLT_MIN) {
+    fprintf(stderr, "pf_scale too large\n");
+    pf_underflow = 1;
+  } else {
+    pf_underflow = 0;
+  }
+
+  if (pf_underflow) return NAN;
+  
+
+  //fprintf(stderr, "Calculating Q = %.e; lnQ = %.f\n", Q, (-log(Q)-n*log(pf_scale))*pf_params->kT/1000.0);
+
   free_energy = (-log(Q)-n*log(pf_scale))*pf_params->kT/1000.0;
   /* in case we abort because of floating point errors */
   if (n>1600) fprintf(stderr, "free energy = %8.2f\n", free_energy);
@@ -469,16 +491,35 @@ PRIVATE void pf_linear_pb(const char *sequence, char *structure)
 
       for (k=i; k<j-1; k++) temp += q[ii-k]*qq[k+1];
       q[ij] = temp;
+
+
+      //if (i%100 == 0 && j%100==0){
+        //fprintf(stderr, "Checking overflow: %d %d %g\n", i,j,temp);
+      //}
+      
+      //if (isnan(temp)){
+        //fprintf(stderr, "Checking overflow: %d %d %g\n", i,j,temp);
+      //}
+
       if (temp>Qmax) {
         Qmax = temp;
         if (Qmax>max_real/10.)
           fprintf(stderr, "Q close to overflow: %d %d %g\n", i,j,temp);
       }
-      if (temp>=max_real) {
+      
+      if (temp>=max_real || isnan(temp)) {
         PRIVATE char msg[128];
-        sprintf(msg, "overflow in pf_fold while calculating q[%d,%d]\n"
-                   "use larger pf_scale", i,j);
-        nrerror(msg);
+        //sprintf(msg, "overflow in pf_fold while calculating q[%d,%d]\n use larger pf_scale", i,j);
+        fprintf(stderr,"overflow in pf_fold while calculating q[%d,%d]\n use larger pf_scale", i,j);
+        //fprintf(stderr, "\nOverflow: %d %d %g\n", i,j,temp);
+        pf_overflow = 1;
+        
+        q[iindx[1]-n] = NAN;
+
+        return;
+        /*nrerror(msg);*/
+      } else {
+        pf_overflow = 0;
       }
     }
     tmp = qq1;  qq1 =qq;  qq =tmp;
@@ -1858,8 +1899,6 @@ PRIVATE double exp_perturbation(int i, int j, pf_paramT *P){
   return q;
 }
 
-
-
 PRIVATE void update_exp_perturbation(int length){
 
   int i,j,x;
@@ -1878,7 +1917,6 @@ PRIVATE void update_exp_perturbation(int length){
       exp_pert[i][j]=q;
     }
   }
-
 }
 
 

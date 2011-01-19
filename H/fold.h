@@ -30,6 +30,8 @@ extern  int eos_debug;
 **/
 float fold(const char *sequence, char *structure);
 
+float fold_pb(const char *sequence, char *structure);
+
 /**
 *** Calculate the free energy of an already folded RNA
 ***

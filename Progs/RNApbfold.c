@@ -45,12 +45,14 @@ PRIVATE struct plist *b2plist(const char *struc);
 PRIVATE struct plist *make_plist(int length, double pmin);
 
 PUBLIC double *epsilon;             /* Perturbation vector in kcal/Mol */
-PUBLIC double **exp_pert;
+PUBLIC double **exp_pert;           /* Helper array for exp epsilon from i to j */
+PUBLIC double **perturbations;       /* Helper array for perturbation energy from i to j */
 PRIVATE double *q_unpaired;         /* Vector of probs. of being unpaired in the experimental structure */
 PRIVATE double **p_pp;              /* Base pair probability matrix of predicted structure              */
 PRIVATE double *p_unpaired;         /* Vector of probs. of being unpaired in the predicted structure    */
 PRIVATE double **p_unpaired_cond;   /* List of vectors p_unpaired with the condition that i is unpaired */
 PRIVATE double **p_unpaired_cond_sampled;  
+PRIVATE double *p_unpaired_tmp;
 PRIVATE int count_df_evaluations;
 
 PRIVATE int  numerical = 0;
@@ -60,6 +62,13 @@ PRIVATE int hybrid_conditionals = 0;
 PRIVATE char psDir[1024];
 PRIVATE int noPS;
 PRIVATE int sparsePS=1;
+
+
+/* Some global variables to catch under/overflows in partition
+   function scaling*/
+PUBLIC double last_lnQ;
+PUBLIC int pf_overflow;
+PUBLIC int pf_underflow;
 
 int debug=0;
 
@@ -127,6 +136,10 @@ int main(int argc, char *argv[]){
   char constraints_file[256];
   FILE* fh;
 
+  double last_non_nan_lnQ;
+
+  pf_overflow = 0;
+  pf_underflow = 0;
  
   do_backtrack  = 1;
   string        = NULL;
@@ -242,6 +255,7 @@ int main(int argc, char *argv[]){
   epsilon =     (double *) space(sizeof(double)*(length+1));
 
   exp_pert =  (double **)space(sizeof(double *)*(length+1));
+  perturbations =  (double **)space(sizeof(double *)*(length+1));
   prev_epsilon = (double *) space(sizeof(double)*(length+1));
   gradient =    (double *) space(sizeof(double)*(length+1));
   gradient_numeric =    (double *) space(sizeof(double)*(length+1));
@@ -253,13 +267,15 @@ int main(int argc, char *argv[]){
   p_unpaired_cond_sampled = (double **)space(sizeof(double *)*(length+1));
   p_pp =  (double **)space(sizeof(double *)*(length+1));
   p_unpaired =  (double *) space(sizeof(double)*(length+1));
-  
+  p_unpaired_tmp = (double *) space(sizeof(double)*(length+1));
+
   for (i=0; i <= length; i++){
     epsilon[i] = gradient[i] = q_unpaired[i] = 0.0;
     p_unpaired_cond[i] = (double *) space(sizeof(double)*(length+1));
     p_unpaired_cond_sampled[i] = (double *) space(sizeof(double)*(length+1));
     p_pp[i] = (double *) space(sizeof(double)*(length+1));
     exp_pert[i] = (double *) space(sizeof(double)*(length+1));
+    perturbations[i] = (double *) space(sizeof(double)*(length+1));
     for (j=0; j <= length; j++){
       p_pp[i][j]=p_unpaired_cond[i][j] = 0.0;
       p_unpaired_cond_sampled[i][j] = 0.0;
@@ -323,7 +339,8 @@ int main(int argc, char *argv[]){
   dangles=0;
   
   min_en = fold(string, structure);
-    
+
+ 
   (void) fflush(stdout);
 
   if (length>2000) free_arrays(); 
@@ -339,7 +356,6 @@ int main(int argc, char *argv[]){
 
   kT = (temperature+273.15)*1.98717/1000.; /* in Kcal */
   pf_scale = exp(-(sfact*min_en)/kT/length);
-
  
   /* Set up minimizer */
 
@@ -363,6 +379,11 @@ int main(int argc, char *argv[]){
   minimizer_func.df = numerical ? calculate_df_numerically: calculate_df;
   minimizer_func.fdf = calculate_fdf;
   minimizer_func.params = &minimizer_pars;
+
+
+  //min_en = fold_pb(string, structure);
+  //fprintf(stderr, "%f", min_en);
+  //exit(0);
 
 
   /* Calling test functions for debugging */
@@ -391,9 +412,11 @@ int main(int argc, char *argv[]){
     double m,b;
     double* curr_epsilon;
     double* best_epsilon;
-    double best_m, best_b;
+    double best_m, best_b, best_scale;
     double curr_D;
     double min_D = 999999999.0;
+    double inc = +0.25;
+    double cut;
 
     if (initial_guess_method == 1) fprintf(stderr, "Mathew's constant perturbations\n");
     if (initial_guess_method == 2) fprintf(stderr, "Perturbations proportional to q-p\n");
@@ -401,50 +424,136 @@ int main(int argc, char *argv[]){
     curr_epsilon = (double *) space(sizeof(double)*(length+1));
     best_epsilon = (double *) space(sizeof(double)*(length+1));
 
-    for (m=0.0; m>-5.0; m-=0.5){
-      for (b=0.0; b<3.0; b+=0.5){
+    last_non_nan_lnQ = min_en;
 
+    // Calculate p_unpaired for unperturbed state which we need later
+    // for the proportinal method
+    if (initial_guess_method == 2){
+      
+      init_pf_fold(length);
+      
+      for (i=0; i <= length; i++){
+        epsilon[i] = 0.0;
+      }
+      
+      pf_fold_pb(string, NULL);
+      for (i = 1; i < length; i++){
+        for (j = i+1; j<= length; j++) {
+          p_pp[i][j]=p_pp[j][i]=pr[iindx[i]-j];
+        }
+      }
+      get_pair_prob_vector(p_pp, p_unpaired_tmp, length, 1);
+      free_pf_arrays();
+    }
+
+    /* We do the same grid search as in the Mathews paper Fig. 4*/
+    for (m=0.25; m <=6.0; m+=0.25){
+      
+      // Weird way of writing this inner loop for the grid search. We
+      // traverse the grid without big jumps in the parameters to make
+      // sure that the updated scaling factor is accurate all the time. 
+      inc*=-1;
+      
+      for (b = inc < 0.0 ? 0.0 : -3.0; inc < 0.0 ? b >= -3.0 : b<= 0.0 ; b+=inc){
+
+        // calculate cut point with x-axis and skip parameter pairs
+        // which give a cut point outside the range of
+        // q_unpaired (0 to 1). They gave frequently overflows and the
+        // idea is that we both want positive and negative perturbations
+        cut = exp( (-1) * b / m ) - 1;
+
+        fprintf(stderr, "\nm = %.2f, b = %.2f, cut=%.2f\n", m, b, cut);
+
+        if (cut > 1.0 || cut < 0.01) {
+          fprintf(stderr, "\nSkipping m = %.2f, b = %.2f\n", m, b);
+          continue;
+        }
+       
         /* Mathew's constant perturbations */
         if (initial_guess_method == 1){
           for (i=0; i <= length; i++){
-            curr_epsilon[i] = m *(log(q_unpaired[i]+1))+b;
+
+            /* We add epsilon to unpaired regions (as opposed to
+               paired regions as in the Mathews paper) so we multiply
+               by -1 */
+            curr_epsilon[i] = (m *(log(q_unpaired[i]+1))+b) *(-1);
             gsl_vector_set (minimizer_x, i, curr_epsilon[i]);
           }
-        /* Perturbations proportional to q-p */
+          /* Perturbations proportional to q-p */
         } else {
-          init_pf_fold(length);
-          pf_fold_pb(string, NULL);
-          for (i = 1; i < length; i++){
-            for (j = i+1; j<= length; j++) {
-              p_pp[i][j]=p_pp[j][i]=pr[iindx[i]-j];
-            }
-          }
-          get_pair_prob_vector(p_pp, p_unpaired, length, 1); 
-          free_pf_arrays();
-
+      
           for (i=0; i <= length; i++){
-            curr_epsilon[i] = m *(log(q_unpaired[i]+1)-log(p_unpaired[i]+1))+b;
+            curr_epsilon[i] = (m *(log(q_unpaired[i]+1)-log(p_unpaired_tmp[i]+1))+ b ) * (-1);
             gsl_vector_set (minimizer_x, i, curr_epsilon[i]);
           }
         }
 
-        curr_D = calculate_f(minimizer_x, (void*)&minimizer_pars);
-        if (curr_D < min_D){
-          min_D = curr_D;
-          for (i=0; i <= length; i++){
-            best_epsilon[i] = curr_epsilon[i];
+        // Repeat and adjust scaling factor until we get result without over-/underflows
+        do {
+
+          // First we use default scaling factor
+          if (pf_underflow == 0 && pf_overflow == 0){
+            sfact = 1.070;
           }
-          best_m = m;
-          best_b = b;
+
+          if (pf_underflow) {
+            sfact *= 0.8;
+            fprintf(stderr,"Underflow, adjusting sfact to %.4f\n", sfact );
+          }
+          
+          if (pf_overflow){
+            sfact *= 1.2;
+            fprintf(stderr,"Overflow, adjusting sfact to %.4f\n", sfact );
+          }
+
+          pf_scale = exp(-(sfact*last_non_nan_lnQ)/kT/length);
+          
+          //fprintf(stderr,"Scaling factor is now: %.4e\n", pf_scale);
+
+          curr_D = calculate_f(minimizer_x, (void*)&minimizer_pars);
+
+          if (!isnan(last_lnQ)) last_non_nan_lnQ = last_lnQ;
+
+          // Give up when even extreme scaling does not give results
+          // (for some reason I could not get rid of overflows even with high scaling factors)
+          if (sfact < 0.1 || sfact > 2.0) break;
+          
+        } while (pf_underflow == 1 || pf_overflow == 1);
+
+        // We have not given up so everything is ok now
+        if (!(sfact < 0.1 || sfact > 2.0)){
+        
+          if (curr_D < min_D){
+            min_D = curr_D;
+            for (i=0; i <= length; i++){
+              best_epsilon[i] = curr_epsilon[i];
+            }
+            best_m = m;
+            best_b = b;
+            best_scale = pf_scale;
+          }
+
+          fprintf(stderr, "curr D: %.2f, minimum D: %.2f\n", curr_D, min_D);
+
+          // Adjust pf_scale with default scaling factor but lnQ from
+          // previous step
+          sfact = 1.070;
+          pf_scale = exp(-(sfact*last_lnQ)/kT/length);
+
+        } else {
+          sfact = 1.070;
+          fprintf(stderr, "Skipping m = %.2f, b = %.2f; did not get stable result.\n", m, b);
         }
-        fprintf(stderr, "%.2f, %.2f: %.2f %.2f\n", m, b, curr_D, min_D);
-      }
-    }
-    fprintf(stderr, "Minimum found: %.2f, %.2f: %.2f\n", best_m, best_b, min_D);
+      } // for b
+    } // for m
+
+    fprintf(stderr, "Minimum found: m=%.2f, b=%.2f: %.2f\n", best_m, best_b, min_D);
+
     for (i=0; i <= length; i++){
       epsilon[i] = best_epsilon[i];
       gsl_vector_set (minimizer_x, i, best_epsilon[i]);
     }
+    pf_scale = best_scale;
   }
 
   prev_D = calculate_f(minimizer_x, (void*)&minimizer_pars);
@@ -706,7 +815,11 @@ double calculate_f(const gsl_vector *v, void *params){
   }
   
   init_pf_fold(length);
-  pf_fold_pb(pars->seq, NULL);
+  last_lnQ = pf_fold_pb(pars->seq, NULL);
+  
+  if (isnan(last_lnQ)){
+    return(NAN);
+  }
 
   for (i = 1; i < length; i++){
     for (j = i+1; j<= length; j++) {
