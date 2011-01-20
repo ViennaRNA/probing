@@ -62,6 +62,7 @@ PRIVATE int hybrid_conditionals = 0;
 PRIVATE char psDir[1024];
 PRIVATE int noPS;
 PRIVATE int sparsePS=1;
+PRIVATE int grid_search=0;
 
 
 /* Some global variables to catch under/overflows in partition
@@ -173,6 +174,8 @@ int main(int argc, char *argv[]){
   if (args_info.numericalGradient_given) numerical=1;
   if (args_info.psDir_given) strcpy(psDir, args_info.psDir_arg);      
   if (args_info.sparsePS_given) sparsePS=args_info.sparsePS_arg;
+  if (args_info.gridSearch_given) grid_search = 1;
+    
   
   /* Generic RNAfold options */
   
@@ -192,6 +195,7 @@ int main(int argc, char *argv[]){
 
   RNAfold_cmdline_parser_free (&args_info);
 
+  /* Create postscript directory */
   if (!noPS){
     struct stat stat_p;	
     if (stat (psDir, &stat_p) != 0){
@@ -225,10 +229,10 @@ int main(int argc, char *argv[]){
     }
   }
 
+  /*Read sequence*/
   fname[0] = '\0';
   while((input_type = get_input_line(&input_string, 0)) & VRNA_INPUT_FASTA_HEADER){
     (void) sscanf(input_string, "%42s", fname);
-    //printf("name\t%s\n", input_string);
     free(input_string);
   }
 
@@ -253,8 +257,6 @@ int main(int argc, char *argv[]){
   } else {
     str_DNA2RNA(string);
   }
-
-  /*** Start of RNApbfold specific code ***/
 
   /* Allocating space */
   
@@ -288,8 +290,9 @@ int main(int argc, char *argv[]){
     }
   }
     
-  /*** Get constraints from reference structure or from file constraints.dat ***/
+  /*** Get constraints from reference structure or from external file ***/
 
+  /* Structure was given by -C */
   if (fold_constrained){
     for (i=0; i<length; i++){
       if (cstruc[i] == '(' || cstruc[i] == ')'){
@@ -298,6 +301,8 @@ int main(int argc, char *argv[]){
         q_unpaired[i+1] = 1.0;
       }
     }
+  
+    /*Read constraints from file*/  
   } else {
 
     filehandle = fopen (constraints_file,"r");
@@ -323,6 +328,7 @@ int main(int argc, char *argv[]){
     }
   }
 
+  /* Create file handle */
   if (outfile[0] !='\0'){
     statsfile = fopen (outfile,"w");
   } else {
@@ -330,8 +336,13 @@ int main(int argc, char *argv[]){
   }
 
   setvbuf(statsfile, NULL, _IONBF, 0);
-  
-  fprintf(statsfile, "Iteration\tDiscrepancy\tNorm\tdfCount\tMEA\tepsilon\n");
+
+  if (!grid_search){
+    fprintf(statsfile, "Iteration\tDiscrepancy\tNorm\tdfCount\tMEA\tepsilon\n");
+  } else {
+    /* If we do a grid search we have a different output. */
+    fprintf(statsfile, "Dummy\tm\tb\tdummy\tMEA\tepsilon\n");
+  }
 
   if (statsfile == NULL){
     nrerror("Could not open stats.dat for writing.");
@@ -341,18 +352,14 @@ int main(int argc, char *argv[]){
           tau, sigma, precision, tolerance, initial_step_size);
   
   st_back=1;
-  
   dangles=0;
-  
   min_en = fold(string, structure);
-
  
   (void) fflush(stdout);
 
   if (length>2000) free_arrays(); 
 
   pf_struc = (char *) space((unsigned) length+1);
-
 
   if (dangles==1) {
     dangles=2;   /* recompute with dangles as in pf_fold() */
@@ -386,11 +393,10 @@ int main(int argc, char *argv[]){
   minimizer_func.fdf = calculate_fdf;
   minimizer_func.params = &minimizer_pars;
 
-
+  
   //min_en = fold_pb(string, structure);
   //fprintf(stderr, "%f", min_en);
   //exit(0);
-
 
   /* Calling test functions for debugging */
 
@@ -539,6 +545,15 @@ int main(int argc, char *argv[]){
             best_scale = pf_scale;
           }
 
+          /*If we are interested in the grid search we misuse the
+            print_stats function and report m and b together with MEA*/
+          if (grid_search){
+            for (i=0; i <= length; i++){
+              epsilon[i] = curr_epsilon[i];
+            }
+            print_stats(statsfile, string, cstruc, length, 0, 0, m, 0.0, b, 0);
+          }
+
           fprintf(stderr, "curr D: %.2f, minimum D: %.2f\n", curr_D, min_D);
 
           // Adjust pf_scale with default scaling factor but lnQ from
@@ -560,6 +575,11 @@ int main(int argc, char *argv[]){
       gsl_vector_set (minimizer_x, i, best_epsilon[i]);
     }
     pf_scale = best_scale;
+  }
+
+  /* If we just wanted a grid search we are done now. */
+  if (grid_search){
+    exit(0);
   }
 
   prev_D = calculate_f(minimizer_x, (void*)&minimizer_pars);

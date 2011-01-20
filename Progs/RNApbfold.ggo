@@ -83,11 +83,17 @@ optional
 option  "init" - 
 "Initial guess for epsilon:\n\n\
 0 ... Null vector\n\
-1 ... proportional to q"
+1 ... proportional to q\n\
+2 ... proportional to q-p"
 int
 default="0"
 argoptional
 optional
+
+option  "gridSearch" -
+"Do a grid search for optimal parameters for initial guess method and just report the results.\n"
+flag
+off
 
 
 option  "sampleGradient" s
