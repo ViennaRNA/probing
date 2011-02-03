@@ -168,7 +168,7 @@ PRIVATE void init_fold(int length){
 
   indx = get_indx((unsigned)length);
 
-  update_perturbations((unsigned)length);
+  //update_perturbations((unsigned)length);
 
   update_fold_params();
 }
