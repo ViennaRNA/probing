@@ -459,7 +459,7 @@ int main(int argc, char *argv[]){
     }
 
     /* We do the same grid search as in the Mathews paper Fig. 4*/
-    for (m=0.25; m <=6.0; m+=0.25){
+    for (m=0.25; m <=7.0; m+=0.25){
       
       // Weird way of writing this inner loop for the grid search. We
       // traverse the grid without big jumps in the parameters to make
