@@ -132,6 +132,10 @@ option  "constraints" C
 string
 optional
 
+option  "epsilon" E
+"Use values in input file as perturbation vector epsilon"
+string
+optional
 
 option  "noPS" - 
 "Do not produce postscript dotplots. By default for each iteration the current\

@@ -141,6 +141,7 @@ int main(int argc, char *argv[]){
   char *constraints;
   char outfile[256];
   char constraints_file[256];
+  char epsilon_file[256];
   FILE* fh;
 
   double last_non_nan_lnQ;
@@ -153,6 +154,7 @@ int main(int argc, char *argv[]){
 
   noPS = 0;
   outfile[0]='\0';
+  epsilon_file[0]='\0';
   strcpy(psDir, "dotplots");
   
   if(RNAfold_cmdline_parser (argc, argv, &args_info) != 0) exit(1);
@@ -169,6 +171,7 @@ int main(int argc, char *argv[]){
   if (args_info.tolerance_given) tolerance = args_info.tolerance_arg;
   if (args_info.outfile_given) strcpy(outfile, args_info.outfile_arg);
   if (args_info.constraints_given) strcpy(constraints_file, args_info.constraints_arg);
+  if (args_info.epsilon_given) strcpy(epsilon_file, args_info.epsilon_arg);
   if (args_info.sampleGradient_given) sample_conditionals=1;
   if (args_info.hybridGradient_given) { sample_conditionals=1; hybrid_conditionals=1;}
   if (args_info.numericalGradient_given) numerical=1;
@@ -193,7 +196,7 @@ int main(int argc, char *argv[]){
   if (args_info.pfScale_given)     sfact = args_info.pfScale_arg;
   if (args_info.noPS_given)        noPS=1;
 
-  RNAfold_cmdline_parser_free (&args_info);
+
 
   /* Create postscript directory */
   if (!noPS){
@@ -289,6 +292,48 @@ int main(int argc, char *argv[]){
       p_unpaired_cond_sampled[i][j] = 0.0;
     }
   }
+  
+
+  /*** If file with perturbation vector epsilon is given we fold using
+       this epsilon and are done ***/
+
+  if (args_info.epsilon_given){
+    plist *pl, *pl1,*pl2;
+
+    filehandle = fopen (epsilon_file,"r");
+
+    if (filehandle == NULL){
+      nrerror("Could not open file with perturbation vector.");
+    }
+    
+    i=1;
+    while (1) {
+      double t;
+      line = get_line(filehandle);
+      if (line == NULL) break;
+      if (i>length) nrerror("Too many values in perturbation vector file.");
+      if (sscanf(line, "%lf", &epsilon[i]) !=1){
+        nrerror("Error while reading perturbation vector file.");
+      }
+      i++;
+    }
+
+    if (i-1 != length){
+      nrerror("Too few values in perturbation vector file.");
+    }
+    
+    init_pf_fold(length);
+    pf_fold_pb(string, NULL);
+
+    sprintf(fname,"%s/dot.ps", psDir);
+    pl1 = make_plist(length, 1e-5);
+
+    (void) PS_dot_plot_list_epsilon(string, fname, NULL, pl1, epsilon, "");
+
+    exit(0);
+  }
+
+
     
   /*** Get constraints from reference structure or from external file ***/
 
@@ -770,6 +815,8 @@ int main(int argc, char *argv[]){
   (void) fflush(stdout);
   free(string);
   free(structure);
+  RNAfold_cmdline_parser_free (&args_info);
+
   
   return 0;
 }
