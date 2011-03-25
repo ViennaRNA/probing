@@ -874,7 +874,9 @@ double calculate_f(const gsl_vector *v, void *params){
   double D;
   int i,j,length;
   minimizer_pars_struct *pars = (minimizer_pars_struct *)params;
-
+  double q_tmp; 
+  double sigma_tmp;
+  
   //fprintf(stderr, "=> Evaluating objective Function...\n");
   
   length = pars->length;
@@ -908,9 +910,20 @@ double calculate_f(const gsl_vector *v, void *params){
 
   for (i = 1; i <= length; i++){
     D += 1 / pars->tau * epsilon[i] * epsilon[i];
-    D += 1 / pars->sigma *
-      ( p_unpaired[i] - q_unpaired[i] ) *
-      ( p_unpaired[i] - q_unpaired[i] );
+
+    /* Ignore missing data. These have values of -1.0. To be on the
+       safe side numerically test for < -0.5 */
+    if (q_unpaired[i] < -0.5){
+      sigma_tmp = 10000; // Set very high sigma to ignore these positions
+      q_tmp = 0.5; // Set to arbitrary value, does not matter
+    } else {
+      sigma_tmp = pars->sigma;
+      q_tmp = q_unpaired[i];
+    }
+    
+    D += 1 / sigma_tmp *
+      ( p_unpaired[i] - q_tmp ) *
+      ( p_unpaired[i] - q_tmp );
   }
 
   return D;
@@ -927,6 +940,9 @@ void calculate_df (const gsl_vector *v, void *params, gsl_vector *df){
   
   int* unpaired_count;
   int** unpaired_count_cond;
+
+  double q_tmp;
+  double sigma_tmp;
 
   length = pars->length;
 
@@ -1043,15 +1059,23 @@ void calculate_df (const gsl_vector *v, void *params, gsl_vector *df){
     }
   }
 
-  // Calculate gradient
   for (mu=1; mu <= length; mu++){
     sum = 0.0;
     for (i=1; i <= length; i++){
-      sum += p_unpaired[i] *
-        ( p_unpaired[i] - q_unpaired[i] ) *
+
+      // Comments on handling missing data see the corresponding code in calcuate_f
+      if (q_unpaired[i] < -0.5){
+        sigma_tmp = 10000;
+        q_tmp = 0.5;
+      } else {
+        sigma_tmp = pars->sigma;
+        q_tmp = q_unpaired[i];
+      }
+      sum += (1 / sigma_tmp) * p_unpaired[i] *
+        ( p_unpaired[i] - q_tmp ) *
         ( p_unpaired[mu] - p_unpaired_cond[i][mu] );
     }
-    gsl_vector_set(df, mu, (2 * epsilon[mu] /pars->tau ) + (2 / pars->sigma /  pars->kT * sum));
+    gsl_vector_set(df, mu, (2 * epsilon[mu] /pars->tau ) + (2 /  pars->kT * sum));
   }
 }
 
