@@ -148,6 +148,8 @@ int main(int argc, char *argv[]){
 
   pf_overflow = 0;
   pf_underflow = 0;
+
+  dangles=2;
  
   do_backtrack  = 1;
   string        = NULL;
@@ -397,7 +399,6 @@ int main(int argc, char *argv[]){
           tau, sigma, precision, tolerance, initial_step_size);
   
   st_back=1;
-  dangles=0;
   min_en = fold(string, structure);
  
   (void) fflush(stdout);
@@ -405,12 +406,6 @@ int main(int argc, char *argv[]){
   if (length>2000) free_arrays(); 
 
   pf_struc = (char *) space((unsigned) length+1);
-
-  if (dangles==1) {
-    dangles=2;   /* recompute with dangles as in pf_fold() */
-    min_en = energy_of_struct(string, structure);
-    dangles=1;
-  }
 
   kT = (temperature+273.15)*1.98717/1000.; /* in Kcal */
   pf_scale = exp(-(sfact*min_en)/kT/length);
@@ -443,21 +438,21 @@ int main(int argc, char *argv[]){
   //fprintf(stderr, "%f", min_en);
   //exit(0);
 
-  /* Calling test functions for debugging */
+ /* Calling test functions for debugging */  
+  for (i=1; i <= length; i++){
+    if (i%2==0){
+      epsilon[i] = +0.2*i;
+    } else {
+      epsilon[i] = -0.2*i;
+    }
+  }
 
-  /* for (i=1; i <= length; i++){ */
-  /*   if (i%2==0){ */
-  /*     epsilon[i] = +0.1*i; */
-  /*   } else { */
-  /*     epsilon[i] = -0.1*i; */
-  /*   } */
-  /* } */
-
-  /* //test_folding(string, length); */
+  //test_folding(string, length);
   /* //test_stochastic_backtracking(string, length); */
   /* //test_gradient(minimizer_func, minimizer_pars); */
   /* //test_gradient_sampling(minimizer_func, minimizer_pars); */
-  /* //exit(1); */
+  //exit(1); 
+
 
   count_df_evaluations=0;
 
