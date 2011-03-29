@@ -527,8 +527,14 @@ int main(int argc, char *argv[]){
 
             /* We add epsilon to unpaired regions (as opposed to
                paired regions as in the Mathews paper) so we multiply
-               by -1 */
-            curr_epsilon[i] = (m *(log(q_unpaired[i]+1))+b) *(-1);
+               by -1; if missing data we set it to 0.0 */
+
+            if (q_unpaired[i] < -0.5){
+              curr_epsilon[i] = 0.0; 
+            } else {
+              curr_epsilon[i] = (m *(log(q_unpaired[i]+1))+b) *(-1);
+            }
+
             gsl_vector_set (minimizer_x, i, curr_epsilon[i]);
           }
           /* Perturbations proportional to q-p */
