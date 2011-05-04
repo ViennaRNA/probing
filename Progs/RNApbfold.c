@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <string.h>
+#include <time.h>
 #include <sys/stat.h>
 #include "fold.h"
 #include "part_func.h"
@@ -458,7 +459,7 @@ int main(int argc, char *argv[]){
 
   /* Initial guess for epsilon */
 
-  if (initial_guess_method !=0){
+  if (initial_guess_method !=0 && initial_guess_method !=3){
 
     /* Vars for inital guess methods */
     double m,b;
@@ -621,6 +622,15 @@ int main(int argc, char *argv[]){
       gsl_vector_set (minimizer_x, i, best_epsilon[i]);
     }
     pf_scale = best_scale;
+  }
+
+  if (initial_guess_method == 3){
+    srand((unsigned)time(0));
+    for (i=0; i <= length; i++){
+      double r = (double)rand()/(double)RAND_MAX * 4 - 2;
+      epsilon[i] = r;
+      gsl_vector_set (minimizer_x, i, epsilon[i]);
+    }
   }
 
   /* If we just wanted a grid search we are done now. */
@@ -1184,6 +1194,9 @@ void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iterat
   double MEAgamma, mea, mea_en;
   char* output;
   int i,j;
+  static char timestamp[40];
+  const struct tm *tm;
+  time_t now;
 
   ss = (char *) space((unsigned) length+1);
   memset(ss,'.',length);
@@ -1223,8 +1236,13 @@ void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iterat
       fprintf(statsfile, ",");
     }
   }
- 
-  fprintf(statsfile, "\n");
+
+  now = time ( NULL );
+  tm = localtime ( &now );
+
+  strftime ( timestamp, 40, "%Y-%m-%d %X", tm );
+
+  fprintf(statsfile, "\t%s\n", timestamp);
 
   /* Print dotplot only if not noPS is given and function call asks for it */
   if (!noPS && printPS){

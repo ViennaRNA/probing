@@ -84,7 +84,8 @@ option  "init" -
 "Initial guess for epsilon:\n\n\
 0 ... Null vector\n\
 1 ... proportional to q\n\
-2 ... proportional to q-p"
+2 ... proportional to q-p\n\
+3 ... random"
 int
 default="0"
 argoptional
