@@ -102,6 +102,7 @@ option  "sampleGradient" s
 flag
 off
 
+
 option  "hybridGradient" -
 "First sample conditional probabilities, when it fails continue with exact gradient. Only works with methods 0 and 1.\n"
 flag
@@ -120,6 +121,12 @@ int
 default="10000"
 argoptional
 optional
+
+
+option  "sampleStructure" x
+"Sample structure models at each step and report closest to input constraints\n"
+flag
+off
 
 
 option  "reference" c

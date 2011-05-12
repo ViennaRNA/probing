@@ -59,6 +59,7 @@ PRIVATE int count_df_evaluations;
 PRIVATE int  numerical = 0;
 PRIVATE double numeric_d = 0.00001;
 PRIVATE int sample_conditionals = 0;
+PRIVATE int sample_structure = 0;
 PRIVATE int hybrid_conditionals = 0;
 PRIVATE char psDir[1024];
 PRIVATE int noPS;
@@ -178,6 +179,7 @@ int main(int argc, char *argv[]){
   if (args_info.sampleGradient_given) sample_conditionals=1;
   if (args_info.hybridGradient_given) { sample_conditionals=1; hybrid_conditionals=1;}
   if (args_info.numericalGradient_given) numerical=1;
+  if (args_info.sampleStructure_given) sample_structure=1;
   if (args_info.psDir_given) strcpy(psDir, args_info.psDir_arg);      
   if (args_info.sparsePS_given) sparsePS=args_info.sparsePS_arg;
   if (args_info.gridSearch_given) grid_search = 1;
@@ -386,7 +388,7 @@ int main(int argc, char *argv[]){
   setvbuf(statsfile, NULL, _IONBF, 0);
 
   if (!grid_search){
-    fprintf(statsfile, "Iteration\tDiscrepancy\tNorm\tdfCount\tMEA\tepsilon\n");
+    fprintf(statsfile, "Iteration\tDiscrepancy\tNorm\tdfCount\tMEA\tSampled_structure\tSampled_energy\tSampled_distance\tEpsilon\ttimestamp\n");
   } else {
     /* If we do a grid search we have a different output. */
     fprintf(statsfile, "Dummy\tm\tb\tdummy\tMEA\tepsilon\n");
@@ -1033,7 +1035,6 @@ void calculate_df (const gsl_vector *v, void *params, gsl_vector *df){
     }
 
     fold_constrained = 0;
-
     init_pf_fold(length); 
 
     pf_fold_pb(pars->seq, NULL);
@@ -1227,8 +1228,64 @@ void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iterat
     fprintf(statsfile,"%s,%.2e;", ss, MEAgamma);
     free(pl);
   }
-
   fprintf(statsfile, "\t");
+
+  // Stochastic backtracking
+
+  fprintf(stderr, "Sampling structures...\n");
+
+  if (sample_structure){
+
+    char* best_structure;
+    char* curr_structure;
+    double x;
+
+    double curr_energy = 0.0;
+    double min_energy = +1.0;
+    int curr_distance =  0;
+    int min_distance = 999999;
+    
+    best_structure = (char *) space((unsigned) length+1);
+    
+    for (i=1; i<=10000; i++) {
+
+      curr_structure = pbacktrack_pb(seq);
+      curr_energy = energy_of_struct(seq, curr_structure);
+      curr_distance = 0.0;
+
+      //fprintf(stderr, "%s%.2f ", curr_structure, curr_energy);
+
+      for (j = 1; j <= length; j++){
+
+        if (q_unpaired[j] > -0.5){
+          x = (curr_structure[j-1] == '.') ? 1.0 : 0.0;
+          curr_distance += abs(x-q_unpaired[j]);
+        }
+      }
+
+      if (curr_distance < min_distance){
+        min_distance = curr_distance;
+        min_energy = curr_energy;
+        strcpy(best_structure, curr_structure);
+      }
+
+      if (curr_distance == min_distance){
+        if (curr_energy < min_energy){
+          min_energy = curr_energy;
+          strcpy(best_structure, curr_structure);
+        }
+      }
+
+      //fprintf(stderr, "%i\n", curr_distance);
+      free(curr_structure);
+    }
+
+    //fprintf(stderr, "\n%s %.2f %i\n", best_structure, min_energy, min_distance);
+    fprintf(statsfile, "\t%s\t%.2f\t%i\t", best_structure, min_energy, min_distance);
+    
+  } else {
+    fprintf(statsfile, "NA\tNA\tNA\t");
+  }
 
   for (i = 1; i <= length; i++){
     fprintf(statsfile, "%.4f", epsilon[i]);
@@ -1260,7 +1317,9 @@ void print_stats(FILE* statsfile, char* seq, char* struc, int length, int iterat
     (void) PS_dot_plot_list_epsilon(seq, fname, pl2, pl1, epsilon, title);
   }
 
-  free_arrays(); 
+
+  free_pf_arrays(); 
+
 
 }
 
