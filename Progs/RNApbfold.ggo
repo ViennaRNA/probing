@@ -4,7 +4,7 @@ purpose "RNA folding with continuous constraints"
 usage "RNAbpfold [options] < sequence.fa\n"
 
 # Version of your program
-version "0.01"   # don't use version if you're using automake
+version "0.1"   # don't use version if you're using automake
 
 
 # command line options passed to gengetopt
